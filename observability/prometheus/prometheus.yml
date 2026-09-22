@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8000"]
+        labels:
+          service: gateway
+
+  - job_name: order
+    static_configs:
+      - targets: ["order:8000"]
+        labels:
+          service: order
+
+  - job_name: payment
+    static_configs:
+      - targets: ["payment:8000"]
+        labels:
+          service: payment

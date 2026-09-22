@@ -68,20 +68,36 @@ client → gateway → order → payment
 ## Telemetry flow
 
 ```
-service (instrumented with OpenTelemetry SDK)
+service (instrumented with OpenTelemetry SDK via shared/telemetry)
     │
-    ├── traces ──► OTel collector / exporter ──► trace backend
-    ├── metrics ─► Prometheus (scraped or pushed)
-    └── logs ────► structured stdout logs (correlated via trace_id)
+    ├── traces ──► OTLP/gRPC ──► Jaeger (all-in-one) ──► Jaeger UI / Grafana datasource
+    ├── metrics ─► GET /metrics (OTel Prometheus reader) ──► Prometheus (scraped) ──► Grafana
+    └── logs ────► structured JSON on stdout (trace_id/span_id/service fields)
 ```
 
-- Every service shares one instrumentation setup (`shared/telemetry`) so trace/metric/log
-  conventions are consistent across services — this is what makes cross-service correlation
-  possible at all.
-- Every log line and span carries a `trace_id` so a single client request can be reconstructed
-  across all services it touched.
-- Metrics are pulled by Prometheus; Grafana reads from Prometheus for visualization. No custom
-  metrics pipeline.
+- Every service shares one instrumentation setup (`shared/telemetry.setup_telemetry`) so
+  trace/metric/log conventions are consistent across services — this is what makes
+  cross-service correlation possible at all. It auto-instruments FastAPI (inbound requests)
+  and `httpx` (outbound calls), so a checkout request produces one connected trace across
+  `gateway → order → payment` without manual span code in business logic.
+- Every log line and span carries a `trace_id`/`span_id` (when in a request context) so a
+  single client request can be reconstructed across all services it touched.
+- **Traces** are exported over OTLP/gRPC to **Jaeger** (`jaegertracing/all-in-one`), the
+  smallest option that gives a real trace backend with its own inspection UI and no separate
+  collector process. `OTEL_EXPORTER_OTLP_ENDPOINT` controls the target, so the same code path
+  runs locally (`http://localhost:4317`, if a collector happens to be running) or under Docker
+  Compose (`http://jaeger:4317`) without change.
+- **Metrics** are pulled by Prometheus from each service's own `/metrics` endpoint (an
+  OpenTelemetry `PrometheusMetricReader` mounted as an ASGI app) — no push gateway, no
+  intermediate metrics pipeline. Prometheus attaches a `service` label per scrape job so
+  per-service dashboards and correlation queries don't depend on trusting resource-attribute
+  metrics like `target_info`. Grafana reads from Prometheus (metrics) and Jaeger (traces) as
+  provisioned datasources, with one starter dashboard (request rate, p95 latency, error rate,
+  active requests, all broken out by service) provisioned automatically.
+- **Logs** stay on stdout as structured JSON; `docker compose logs` (or a terminal, when run
+  locally with uvicorn) is the inspection path. No log aggregation backend (e.g. Loki) was
+  added — stdout plus `trace_id` correlation is sufficient at this scale and avoids adding
+  infrastructure that doesn't yet solve a concrete problem.
 
 ## Fault-injection boundary
 

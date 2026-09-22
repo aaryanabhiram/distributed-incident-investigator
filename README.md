@@ -79,10 +79,11 @@ tests/          Tests
 
 ## Status
 
-**Multi-service substrate.** Three real services — `gateway`, `order`, and `payment` — talk to
-each other over plain HTTP: `gateway → order → payment`. Each is independently runnable and
-health-checkable, and the whole chain runs together under Docker Compose. No telemetry,
-fault injection, correlation, or LLM layer has been built yet.
+**Telemetry.** Three real services — `gateway`, `order`, and `payment` — talk to each other
+over plain HTTP: `gateway → order → payment`. Each is instrumented with OpenTelemetry (traces,
+metrics, structured logs) via a shared setup in `shared/telemetry/`, and the whole chain runs
+together with a local observability stack (Jaeger, Prometheus, Grafana) under Docker Compose.
+Fault injection, correlation, and the LLM layer have not been built yet.
 
 ## Getting started
 
@@ -124,7 +125,54 @@ docker compose up --build
 ```
 
 This builds and runs `gateway` (port 8000), `order` (port 8001), and `payment` (port 8002),
-wired together via compose service names, with health checks gating startup order.
+wired together via compose service names, with health checks gating startup order. It also
+starts the local observability stack: Jaeger, Prometheus, and Grafana (see below).
+
+## Telemetry and local observability stack
+
+Each service calls `shared/telemetry.setup_telemetry(app, service_name)` at startup, which
+configures:
+
+- **Traces** — OpenTelemetry auto-instrumentation of FastAPI and outgoing `httpx` calls,
+  exported via OTLP/gRPC to the endpoint in `OTEL_EXPORTER_OTLP_ENDPOINT` (defaults to
+  `http://localhost:4317`, i.e. a locally running Jaeger). A single checkout request produces
+  one connected trace spanning `gateway → order → payment`.
+- **Metrics** — an OpenTelemetry Prometheus reader exposed at `GET /metrics` on each service.
+  Includes `http_server_duration_milliseconds` (a histogram, giving request count and latency
+  together, labeled by route and status code) and `http_server_active_requests`.
+- **Logs** — structured JSON to stdout, one line per log record, including `service`,
+  `trace_id`, and `span_id` so a log line can be tied back to the trace and service that
+  produced it. Uvicorn's own access/error logs are routed through the same formatter.
+
+Trace/metric export endpoints are read from environment variables at startup
+(`OTEL_EXPORTER_OTLP_ENDPOINT`), so the same code runs unchanged locally or in Docker Compose
+— only the endpoint differs (compose points it at the `jaeger` service).
+
+### Starting the stack
+
+```bash
+docker compose up --build
+```
+
+Then exercise the checkout path (see above) and inspect:
+
+- **Jaeger UI** — [http://localhost:16686](http://localhost:16686) — pick service `gateway`,
+  operation `POST /checkout`, to see the full cross-service trace.
+- **Prometheus** — [http://localhost:9090](http://localhost:9090) — targets page shows all
+  three services being scraped; try the query
+  `sum by (service) (rate(http_server_duration_milliseconds_count[1m]))`.
+- **Grafana** — [http://localhost:3000](http://localhost:3000) (anonymous admin access) — the
+  "Incident Investigator - Service Overview" dashboard is provisioned automatically, with
+  request rate, p95 latency, error rate, and active requests, all broken out by service.
+- **Logs** — `docker compose logs -f gateway order payment` — structured JSON lines
+  correlated by `trace_id`.
+
+### Why Jaeger (and not something else) for traces
+
+Jaeger is a single container with an OTLP receiver and its own UI, which is the smallest
+footprint that gives real, inspectable distributed traces locally — no extra collector process
+or trace-storage backend to configure. Grafana is also wired to Jaeger as a datasource so
+traces can be explored from the same place as metrics.
 
 ## Request flow
 
@@ -149,10 +197,10 @@ rather than swallowed.
 ## Planned milestones
 
 1. **Foundation** (done) — repo structure, tooling, docs, one health-checkable service.
-2. **Multi-service system** (this phase) — `gateway`, `order`, and `payment` with real
-   inter-service HTTP calls, running independently or together under Docker Compose.
-3. **Telemetry** — instrument all services with OpenTelemetry (traces, metrics, logs);
-   Prometheus + Grafana wired up.
+2. **Multi-service system** (done) — `gateway`, `order`, and `payment` with real inter-service
+   HTTP calls, running independently or together under Docker Compose.
+3. **Telemetry** (this phase) — instrument all services with OpenTelemetry (traces, metrics,
+   logs); Prometheus + Grafana + Jaeger wired up locally.
 4. **Fault injection** — a controlled, explicit boundary for injecting latency/errors into a
    service.
 5. **Deterministic correlation** — analyze telemetry to identify affected services and

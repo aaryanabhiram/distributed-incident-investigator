@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 
@@ -5,9 +6,14 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from shared.telemetry import setup_telemetry
+
 PAYMENT_SERVICE_URL = os.environ.get("PAYMENT_SERVICE_URL", "http://127.0.0.1:8002")
 
 app = FastAPI(title="order")
+setup_telemetry(app, "order")
+
+logger = logging.getLogger(__name__)
 
 
 class OrderRequest(BaseModel):
@@ -30,6 +36,7 @@ def health() -> dict[str, str]:
 @app.post("/orders", response_model=OrderResponse)
 def create_order(request: OrderRequest) -> OrderResponse:
     order_id = str(uuid.uuid4())
+    logger.info("order created", extra={"order_id": order_id, "amount": request.amount})
 
     try:
         response = httpx.post(
@@ -39,9 +46,14 @@ def create_order(request: OrderRequest) -> OrderResponse:
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
+        logger.error("payment service call failed", extra={"order_id": order_id, "error": str(exc)})
         raise HTTPException(status_code=502, detail=f"payment service unavailable: {exc}") from exc
 
     payment_status = response.json()["status"]
+    logger.info(
+        "payment result received",
+        extra={"order_id": order_id, "payment_status": payment_status},
+    )
 
     return OrderResponse(
         order_id=order_id,
