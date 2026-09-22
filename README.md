@@ -79,9 +79,10 @@ tests/          Tests
 
 ## Status
 
-**Foundation phase.** Only a minimal `gateway` service with a health check exists so far, to
-validate the project skeleton, tooling, and test setup. No telemetry, correlation, fault
-injection, or LLM layer has been built yet.
+**Multi-service substrate.** Three real services — `gateway`, `order`, and `payment` — talk to
+each other over plain HTTP: `gateway → order → payment`. Each is independently runnable and
+health-checkable, and the whole chain runs together under Docker Compose. No telemetry,
+fault injection, correlation, or LLM layer has been built yet.
 
 ## Getting started
 
@@ -92,19 +93,64 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Run the gateway service:
+### Running the services locally (outside Docker)
+
+Each service is independently runnable with uvicorn. Start them in three terminals, innermost
+first, pointing each caller at the next service's URL via environment variable:
 
 ```bash
-uvicorn services.gateway.main:app --reload
+uvicorn services.payment.main:app --port 8002
+
+PAYMENT_SERVICE_URL=http://127.0.0.1:8002 uvicorn services.order.main:app --port 8001
+
+ORDER_SERVICE_URL=http://127.0.0.1:8001 uvicorn services.gateway.main:app --port 8000
 ```
 
-Then check [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
+Then exercise the full chain:
+
+```bash
+curl -X POST http://127.0.0.1:8000/checkout \
+  -H "Content-Type: application/json" \
+  -d '{"item": "widget", "amount": 25.0}'
+```
+
+Each service also exposes `GET /health`, e.g.
+[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
+
+### Running with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This builds and runs `gateway` (port 8000), `order` (port 8001), and `payment` (port 8002),
+wired together via compose service names, with health checks gating startup order.
+
+## Request flow
+
+```
+client
+  │  POST /checkout {item, amount}
+  ▼
+gateway
+  │  POST /orders {item, amount}
+  ▼
+order            (generates order_id)
+  │  POST /charge {order_id, amount}
+  ▼
+payment          (approves if amount > 0, else declines — deterministic, no randomness)
+```
+
+The response (order id, item, amount, payment status) flows back up through order and gateway
+to the client. If a downstream service is unreachable or errors, the caller returns `502` with
+a message identifying which downstream call failed, so the failure is visible at every hop
+rather than swallowed.
 
 ## Planned milestones
 
-1. **Foundation** (this phase) — repo structure, tooling, docs, one health-checkable service.
-2. **Multi-service system** — add 2-3 more services with real inter-service HTTP calls under
-   Docker Compose.
+1. **Foundation** (done) — repo structure, tooling, docs, one health-checkable service.
+2. **Multi-service system** (this phase) — `gateway`, `order`, and `payment` with real
+   inter-service HTTP calls, running independently or together under Docker Compose.
 3. **Telemetry** — instrument all services with OpenTelemetry (traces, metrics, logs);
    Prometheus + Grafana wired up.
 4. **Fault injection** — a controlled, explicit boundary for injecting latency/errors into a

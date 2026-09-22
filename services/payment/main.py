@@ -1,0 +1,28 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI(title="payment")
+
+
+class ChargeRequest(BaseModel):
+    order_id: str
+    amount: float
+
+
+class ChargeResponse(BaseModel):
+    order_id: str
+    amount: float
+    status: str
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "payment"}
+
+
+@app.post("/charge", response_model=ChargeResponse)
+def charge(request: ChargeRequest) -> ChargeResponse:
+    # Deterministic, easy-to-reason-about rule: non-positive amounts are declined.
+    # This gives the system a real, reproducible failure path without fault injection.
+    status = "approved" if request.amount > 0 else "declined"
+    return ChargeResponse(order_id=request.order_id, amount=request.amount, status=status)

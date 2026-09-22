@@ -40,11 +40,14 @@ a single job and a clear input/output.
 Kept intentionally small — enough to produce a real multi-hop call graph, not a simulated
 microservice sprawl.
 
-- **gateway** — entry point; receives client requests, calls downstream services. Exists today
-  as a health-check skeleton only (`services/gateway`).
-- **order** *(planned)* — accepts an order request from the gateway, calls `payment`.
-- **payment** *(planned)* — simulates payment processing; the primary target for fault
-  injection, since a slow/broken payment service is a realistic, easy-to-reason-about incident.
+- **gateway** — entry point; receives a checkout request from the client, calls `order`
+  (`services/gateway`).
+- **order** — accepts an order request from the gateway, generates an order id, calls
+  `payment` (`services/order`).
+- **payment** — simulates payment processing with a deterministic approve/decline rule (no
+  randomness); the primary target for fault injection in a later milestone, since a
+  slow/broken payment service is a realistic, easy-to-reason-about incident
+  (`services/payment`).
 
 Three services is enough to have a real chain (`gateway → order → payment`) with a clear
 upstream/downstream relationship for the correlation layer to reason about, without needing a
