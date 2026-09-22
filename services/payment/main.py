@@ -3,10 +3,14 @@ import logging
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from shared.fault_injection import FaultInjector, install_fault_routes
 from shared.telemetry import setup_telemetry
 
 app = FastAPI(title="payment")
 setup_telemetry(app, "payment")
+
+fault_injector = FaultInjector("payment")
+install_fault_routes(app, fault_injector)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,8 @@ def health() -> dict[str, str]:
 
 @app.post("/charge", response_model=ChargeResponse)
 def charge(request: ChargeRequest) -> ChargeResponse:
+    fault_injector.maybe_apply()
+
     # Deterministic, easy-to-reason-about rule: non-positive amounts are declined.
     # This gives the system a real, reproducible failure path without fault injection.
     status = "approved" if request.amount > 0 else "declined"
