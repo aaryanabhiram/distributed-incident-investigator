@@ -127,6 +127,26 @@ directly. Its job:
 This layer must be fully testable without any LLM: given known telemetry input, it should
 deterministically produce the same incident context.
 
+### Implemented so far (`shared/correlation/`)
+
+- **Core (`__init__.py`)** — pure, network-free, typed. `detect_anomalies` flags samples where
+  `value > rule.threshold`; the threshold is an explicit injectable `AnomalyRule`, a fixture
+  policy rather than a claimed production alerting threshold. `extract_relationships` derives
+  caller → callee edges from OpenTelemetry parent/child spans that cross a service boundary
+  (never from service-name matching). `build_incident_context` sets `affected_services` to only
+  the services that directly produced anomalies, and keeps only relationships touching one of
+  them — exactly one hop, no transitive propagation. `IncidentContext` carries no log evidence
+  yet: there is no programmatic log store to source it from.
+- **Adapters (`adapters.py`)** — pure translation of decoded backend JSON into core inputs:
+  `parse_prometheus_vector` (instant-query vectors; `service` label from the scrape job; NaN
+  and label-less series skipped) and `parse_jaeger_traces` (`/api/traces`; service via
+  `processID`, parent via `CHILD_OF` reference). No I/O.
+- **Fetchers (`fetch.py`)** — thin HTTP layer: `fetch_prometheus_samples` (`/api/v1/query`) and
+  `fetch_jaeger_spans` (`/api/traces`, window as epoch microseconds). Each takes an
+  `httpx.Client` with the backend `base_url` (injectable, so tests use `httpx.MockTransport`),
+  raises on HTTP errors, decodes JSON and hands it to the adapter; no parsing of its own.
+- **Not yet built** — a window-level pipeline function tying fetchers, rules and the core together.
+
 ## Future LLM investigation layer
 
 Reads the incident context produced above — not raw telemetry, and not live service state —

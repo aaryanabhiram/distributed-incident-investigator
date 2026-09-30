@@ -83,7 +83,16 @@ tests/          Tests
 over plain HTTP: `gateway → order → payment`. Each is instrumented with OpenTelemetry (traces,
 metrics, structured logs) via a shared setup in `shared/telemetry/`, and the whole chain runs
 together with a local observability stack (Jaeger, Prometheus, Grafana) under Docker Compose.
-Fault injection, correlation, and the LLM layer have not been built yet.
+
+**Fault injection.** The `payment` service can be made to add latency or return errors on
+demand (`shared/fault_injection/`); injected faults show up in telemetry like real problems.
+
+**Correlation (in progress).** `shared/correlation/` is a network-free deterministic core:
+threshold anomaly detection, service relationships derived from cross-service parent/child
+spans, and a bounded `IncidentContext`. `shared/correlation/adapters.py` converts Prometheus
+instant-query and Jaeger trace JSON into the core's typed inputs, and
+`shared/correlation/fetch.py` fetches that JSON over HTTP (`httpx`). A window-level pipeline
+and the LLM layer have not been built yet.
 
 ## Getting started
 
@@ -199,11 +208,12 @@ rather than swallowed.
 1. **Foundation** (done) — repo structure, tooling, docs, one health-checkable service.
 2. **Multi-service system** (done) — `gateway`, `order`, and `payment` with real inter-service
    HTTP calls, running independently or together under Docker Compose.
-3. **Telemetry** (this phase) — instrument all services with OpenTelemetry (traces, metrics,
+3. **Telemetry** (done) — instrument all services with OpenTelemetry (traces, metrics,
    logs); Prometheus + Grafana + Jaeger wired up locally.
-4. **Fault injection** — a controlled, explicit boundary for injecting latency/errors into a
-   service.
-5. **Deterministic correlation** — analyze telemetry to identify affected services and
+4. **Fault injection** (done) — a controlled, explicit boundary for injecting latency/errors
+   into a service.
+5. **Deterministic correlation** (in progress: core, payload adapters and HTTP fetchers
+   done; window-level pipeline remaining) — analyze telemetry to identify affected services and
    relationships during an incident; build the structured incident context.
 6. **LLM investigator** — LLM reasons over the incident context to produce a root-cause
    hypothesis with cited evidence.
