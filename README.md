@@ -94,8 +94,9 @@ instant-query and Jaeger trace JSON into the core's typed inputs, and
 `shared/correlation/fetch.py` fetches that JSON over HTTP (`httpx`).
 `shared/correlation/runner.py` (`run_correlation`) ties these together for a supplied time
 window: fetch → detect → correlate → `IncidentContext`, with the query, rules and clients passed
-in explicitly. Unit tests use mocked HTTP; it has also been run once by hand against the live
-Compose stack (real Prometheus and Jaeger payloads parsed). `shared/correlation/handoff.py`
+in explicitly. Unit tests use mocked HTTP and, additionally, real Prometheus/Jaeger payloads captured from the
+Compose stack (`tests/fixtures/backends/`, provenance in its README); the evaluation PromQL is
+committed in `shared/correlation/queries.py` (reconstructed from the evaluation history). `shared/correlation/handoff.py`
 converts an `IncidentContext` to/from a JSON-safe dict — the boundary the investigator
 consumes. `shared/investigator/` defines the investigator contract (`InvestigatorInput` →
 `Hypothesis` with root cause, confidence and evidence references) and one LLM-backed executor

@@ -1,0 +1,35 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "service": "order"
+        },
+        "value": [
+          1790756100,
+          "NaN"
+        ]
+      },
+      {
+        "metric": {
+          "service": "payment"
+        },
+        "value": [
+          1790756100,
+          "NaN"
+        ]
+      },
+      {
+        "metric": {
+          "service": "gateway"
+        },
+        "value": [
+          1790756100,
+          "NaN"
+        ]
+      }
+    ]
+  }
+}

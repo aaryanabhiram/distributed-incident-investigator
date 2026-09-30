@@ -1,0 +1,228 @@
+{
+  "data": [
+    {
+      "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+      "spans": [
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "b5fa2f753d9e7802",
+          "operationName": "POST /charge http receive",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "9e43d7fc041ce436"
+            }
+          ],
+          "startTime": 1790753624427995,
+          "duration": 38,
+          "processID": "p1"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "b22afefb706897ad",
+          "operationName": "POST /charge http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "9e43d7fc041ce436"
+            }
+          ],
+          "startTime": 1790753624428592,
+          "duration": 25,
+          "processID": "p1"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "04ddccf48bb9e922",
+          "operationName": "POST /charge http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "9e43d7fc041ce436"
+            }
+          ],
+          "startTime": 1790753624428795,
+          "duration": 10,
+          "processID": "p1"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "9e43d7fc041ce436",
+          "operationName": "POST /charge",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "8d950ad92cdcb146"
+            }
+          ],
+          "startTime": 1790753624427679,
+          "duration": 1147,
+          "processID": "p1"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "3542179377858fa6",
+          "operationName": "POST /orders http receive",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "5d674f2dfb0d264e"
+            }
+          ],
+          "startTime": 1790753624422006,
+          "duration": 38,
+          "processID": "p2"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "76c040af4024205c",
+          "operationName": "POST /orders http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "5d674f2dfb0d264e"
+            }
+          ],
+          "startTime": 1790753624429864,
+          "duration": 23,
+          "processID": "p2"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "1378993a5e18eeed",
+          "operationName": "POST /orders http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "5d674f2dfb0d264e"
+            }
+          ],
+          "startTime": 1790753624430039,
+          "duration": 10,
+          "processID": "p2"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "5d674f2dfb0d264e",
+          "operationName": "POST /orders",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "9130685ae31fcded"
+            }
+          ],
+          "startTime": 1790753624421857,
+          "duration": 8212,
+          "processID": "p2"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "8d950ad92cdcb146",
+          "operationName": "POST",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "5d674f2dfb0d264e"
+            }
+          ],
+          "startTime": 1790753624426862,
+          "duration": 2384,
+          "processID": "p2"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "9130685ae31fcded",
+          "operationName": "POST",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "bc5a4b2a588d3f82"
+            }
+          ],
+          "startTime": 1790753624420893,
+          "duration": 9644,
+          "processID": "p3"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "5bec6ed99f0ef067",
+          "operationName": "POST /checkout http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "bc5a4b2a588d3f82"
+            }
+          ],
+          "startTime": 1790753624431180,
+          "duration": 24,
+          "processID": "p3"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "6dff399ce3bcc449",
+          "operationName": "POST /checkout http receive",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "bc5a4b2a588d3f82"
+            }
+          ],
+          "startTime": 1790753624415880,
+          "duration": 14,
+          "processID": "p3"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "1495277fca33f9b8",
+          "operationName": "POST /checkout http send",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+              "spanID": "bc5a4b2a588d3f82"
+            }
+          ],
+          "startTime": 1790753624431353,
+          "duration": 10,
+          "processID": "p3"
+        },
+        {
+          "traceID": "c33d3e7314736a513769e91b1e6a26a8",
+          "spanID": "bc5a4b2a588d3f82",
+          "operationName": "POST /checkout",
+          "references": [],
+          "startTime": 1790753624415729,
+          "duration": 15654,
+          "processID": "p3"
+        }
+      ],
+      "processes": {
+        "p1": {
+          "serviceName": "payment"
+        },
+        "p2": {
+          "serviceName": "order"
+        },
+        "p3": {
+          "serviceName": "gateway"
+        }
+      }
+    }
+  ],
+  "total": 0,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}

@@ -1,0 +1,35 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "service": "order"
+        },
+        "value": [
+          1790752560,
+          "1509.8749999999998"
+        ]
+      },
+      {
+        "metric": {
+          "service": "payment"
+        },
+        "value": [
+          1790752560,
+          "1491.8990261111112"
+        ]
+      },
+      {
+        "metric": {
+          "service": "gateway"
+        },
+        "value": [
+          1790752560,
+          "1516.7406166666665"
+        ]
+      }
+    ]
+  }
+}

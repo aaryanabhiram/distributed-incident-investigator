@@ -166,6 +166,15 @@ deterministically produce the same incident context.
 - **Live validation (manual, one-off)** — against the Compose stack, real Prometheus and Jaeger
   payloads parsed and `run_correlation` produced the expected `gateway → order → payment`
   relationships. Automated tests still use `httpx.MockTransport`.
+- **Queries and captured payloads (`queries.py`, `tests/fixtures/backends/`)** — the evaluation
+  PromQL (`mean_latency_query`, `error_ratio_query`; business endpoints only, per `service`) is
+  committed. It is *reconstructed* from the evaluation history's prose, since the original scripts
+  were not kept; it was run against the live stack, not diffed against the originals. Six real
+  responses (Prometheus vectors incl. a `NaN` and an empty one; two Jaeger checkout traces with
+  tags stripped) are checked in with provenance in the fixtures README and drive
+  `tests/test_backend_payloads.py` offline. Not covered by real payloads: Prometheus error
+  responses, Jaeger truncation at `limit`, traces missing a parent span. A test pins the known
+  gap that a `NaN` (no traffic) response reads as `unobserved`.
 - **FastAPI note** — services pass `telemetry={"auto_configure": False}` to `FastAPI()`. Newer
   FastAPI releases auto-configure OTel when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and fail startup
   without the `fastapi[opentelemetry]` extra; the repo does its own explicit OTel setup.
