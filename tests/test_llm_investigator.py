@@ -220,3 +220,30 @@ def test_prompt_is_deterministic_with_coverage():
     a = build_prompt(build_investigator_input(payload))
     b = build_prompt(build_investigator_input(payload))
     assert a == b
+
+
+def test_prompt_exposes_unobserved_dependencies_and_their_non_causal_semantics():
+    payload = _payload()
+    payload["metric_coverage"] = [
+        {"metric_name": "error_rate", "service": "payment", "status": "undefined"}
+    ]
+    payload["unobserved_dependencies"] = [
+        {
+            "caller": "order",
+            "callee": "payment",
+            "metric_name": "error_rate",
+            "callee_status": "undefined",
+        }
+    ]
+    prompt = build_prompt(build_investigator_input(payload))
+    context = json.loads(prompt.user.split("\n", 1)[1])
+    assert context["unobserved_dependencies"] == payload["unobserved_dependencies"]
+    system = prompt.system.replace("\n", " ")
+    assert '"undefined"' in system and "no numeric value" in system
+    assert "unobserved_dependencies lists relationships" in system
+    assert "does not show that the callee is or is not the cause" in system
+
+
+def test_prompt_with_no_unobserved_dependencies_shows_an_empty_list():
+    prompt = build_prompt(build_investigator_input(_payload()))
+    assert json.loads(prompt.user.split("\n", 1)[1])["unobserved_dependencies"] == []

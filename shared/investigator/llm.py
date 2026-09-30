@@ -38,9 +38,14 @@ affected callee can contribute to latency observed in its callers. Never reverse
 direction. It defines how to read the edge; it does not by itself show that any service is the \
 root cause.
 - metric_coverage states, per service and metric, whether the metric was "observed" (telemetry \
-for it is in the context) or "unobserved" (the context has no telemetry for it). An empty list \
-means no coverage was declared. Absence of an anomaly is not evidence of health for an \
-unobserved service, and an unobserved service must not be treated as healthy.
+for it is in the context), "undefined" (the query returned a series for it but with no numeric \
+value) or "unobserved" (the query returned no series for it). The reason is not known in either \
+case. An empty list means no coverage was declared. Absence of an anomaly is not evidence of \
+health for an undefined or unobserved service, and such a service must not be treated as healthy.
+- unobserved_dependencies lists relationships where a caller that is anomalous on a metric \
+invoked a callee whose coverage for that same metric is undefined or unobserved. It states \
+only that the callee's health is unknown; it does not show that the callee is or is not the \
+cause. An empty list means none were identified (or no coverage was declared).
 - You cannot inspect services, query any system, or take actions. Do not propose remediation.
 - Produce exactly one hypothesis: the single most likely root cause, not a list of guesses.
 - supporting_evidence must be a non-empty list of unique references. Each reference has \
@@ -70,6 +75,7 @@ def build_prompt(investigator_input: InvestigatorInput) -> Prompt:
         "anomalies": [{"index": i, **a} for i, a in enumerate(incident["anomalies"])],
         "relationships": [{"index": i, **r} for i, r in enumerate(incident["relationships"])],
         "metric_coverage": incident["metric_coverage"],
+        "unobserved_dependencies": incident["unobserved_dependencies"],
     }
     user = "Incident context (complete evidence; cite items by kind and index):\n" + json.dumps(
         indexed, indent=2, sort_keys=True

@@ -175,3 +175,43 @@ def test_run_rejects_naive_window_before_querying_backends(which):
             RULES,
             "gateway",
         )
+
+
+def test_run_reports_undefined_and_unobserved_callees_differently():
+    def prom(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "vector",
+                    "result": [
+                        {"metric": {"service": "gateway"}, "value": [1_700_000_000, "0.9"]},
+                        {"metric": {"service": "order"}, "value": [1_700_000_000, "0.9"]},
+                        {"metric": {"service": "payment"}, "value": [1_700_000_000, "NaN"]},
+                    ],
+                },
+            },
+        )
+
+    prom_client, jaeger = _clients(prom, lambda r: httpx.Response(200, json=JAEGER_BODY))
+    context = run_correlation(
+        prom_client,
+        jaeger,
+        START,
+        END,
+        "q",
+        "error_rate",
+        RULES,
+        "gateway",
+        ["gateway", "order", "payment"],
+    )
+
+    assert {c.service: c.status for c in context.metric_coverage} == {
+        "gateway": "observed",
+        "order": "observed",
+        "payment": "undefined",
+    }
+    assert [(d.caller, d.callee, d.callee_status) for d in context.unobserved_dependencies] == [
+        ("order", "payment", "undefined")
+    ]

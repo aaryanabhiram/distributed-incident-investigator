@@ -18,7 +18,11 @@ from datetime import datetime
 import httpx
 
 from shared.correlation import MetricSample, SpanRecord
-from shared.correlation.adapters import parse_jaeger_traces, parse_prometheus_vector
+from shared.correlation.adapters import (
+    parse_jaeger_traces,
+    parse_prometheus_undefined_services,
+    parse_prometheus_vector,
+)
 
 
 def require_aware(name: str, value: datetime) -> None:
@@ -33,6 +37,14 @@ def _get_json(client: httpx.Client, path: str, params: dict[str, str | int]) -> 
     return response.json()
 
 
+def _query_prometheus(client: httpx.Client, query: str, at: datetime | None) -> dict:
+    params: dict[str, str | int] = {"query": query}
+    if at is not None:
+        require_aware("at", at)
+        params["time"] = at.timestamp()
+    return _get_json(client, "/api/v1/query", params)
+
+
 def fetch_prometheus_samples(
     client: httpx.Client, query: str, metric_name: str, at: datetime | None = None
 ) -> list[MetricSample]:
@@ -40,11 +52,21 @@ def fetch_prometheus_samples(
 
     `at` evaluates the query at that instant; by default Prometheus uses "now".
     """
-    params: dict[str, str | int] = {"query": query}
-    if at is not None:
-        require_aware("at", at)
-        params["time"] = at.timestamp()
-    return parse_prometheus_vector(_get_json(client, "/api/v1/query", params), metric_name)
+    return parse_prometheus_vector(_query_prometheus(client, query, at), metric_name)
+
+
+def fetch_prometheus_vector(
+    client: httpx.Client, query: str, metric_name: str, at: datetime | None = None
+) -> tuple[list[MetricSample], list[str]]:
+    """Like `fetch_prometheus_samples`, plus the services whose series came back as NaN.
+
+    One request; the second element lists what the sample list omits because the value was NaN.
+    """
+    payload = _query_prometheus(client, query, at)
+    return (
+        parse_prometheus_vector(payload, metric_name),
+        parse_prometheus_undefined_services(payload),
+    )
 
 
 def fetch_jaeger_spans(

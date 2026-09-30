@@ -83,10 +83,17 @@ def test_real_traces_yield_only_cross_service_edges():
         assert extract_relationships(spans) == EDGES
 
 
-def _run(prom_fixture: str, query: str, metric: str, threshold: float, trace_fixture: str):
+def _run(
+    prom_fixture: str,
+    query: str,
+    metric: str,
+    threshold: float,
+    trace_fixture: str,
+    prom_body: dict | None = None,
+):
     def prom(request: httpx.Request) -> httpx.Response:
         assert request.url.params["query"] == query
-        return httpx.Response(200, json=_load(prom_fixture))
+        return httpx.Response(200, json=prom_body or _load(prom_fixture))
 
     def jaeger(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_load(trace_fixture))
@@ -119,7 +126,7 @@ def test_latency_incident_end_to_end_from_real_payloads():
     assert {c.status for c in context.metric_coverage} == {"observed"}
 
 
-def test_error_incident_end_to_end_and_no_traffic_reads_as_unobserved():
+def test_error_incident_end_to_end_from_real_payloads():
     context = _run(
         "prometheus_error_ratio_vector.json",
         error_ratio_query("5m"),
@@ -127,17 +134,48 @@ def test_error_incident_end_to_end_and_no_traffic_reads_as_unobserved():
         0.5,
         "jaeger_checkout_trace_err.json",
     )
+
     assert context.affected_services == SERVICES
     assert context.relationships == EDGES
+    assert context.unobserved_dependencies == []  # every callee was measured
 
-    # Pins current behavior (a known gap, not a desired one): a real 0/0 NaN response and a
-    # missing series are indistinguishable, so every service is reported unobserved.
-    quiet = _run(
-        "prometheus_error_ratio_nan_vector.json",
-        error_ratio_query("5m"),
-        ERROR_RATIO_METRIC,
-        0.5,
-        "jaeger_checkout_trace_err.json",
+
+def test_real_nan_response_is_undefined_and_real_empty_response_is_unobserved():
+    def coverage(fixture: str) -> set[str]:
+        context = _run(
+            fixture,
+            error_ratio_query("5m"),
+            ERROR_RATIO_METRIC,
+            0.5,
+            "jaeger_checkout_trace_err.json",
+        )
+        assert context.anomalies == []
+        return {c.status for c in context.metric_coverage}
+
+    # A returned-but-NaN series and a series absent from the response are distinguishable in
+    # the payload. Why either happened (no traffic, target down, stale) is not.
+    assert coverage("prometheus_error_ratio_nan_vector.json") == {"undefined"}
+    assert coverage("prometheus_empty_vector.json") == {"unobserved"}
+
+
+def test_partial_observability_yields_the_order_to_payment_dependency():
+    # DERIVED, not captured: the real latency fixture with the payment series removed, which
+    # reproduces the Evaluation 5 situation (payment slow but not in the metric query).
+    body = _load("prometheus_mean_latency_vector.json")
+    body["data"]["result"] = [
+        r for r in body["data"]["result"] if r["metric"]["service"] != "payment"
+    ]
+    context = _run(
+        "",
+        mean_latency_query("5m"),
+        LATENCY_METRIC,
+        500,
+        "jaeger_checkout_trace_ok.json",
+        prom_body=body,
     )
-    assert quiet.anomalies == []
-    assert {c.status for c in quiet.metric_coverage} == {"unobserved"}
+
+    assert context.affected_services == ["gateway", "order"]
+    assert context.relationships == EDGES
+    assert [(d.caller, d.callee, d.callee_status) for d in context.unobserved_dependencies] == [
+        ("order", "payment", "unobserved")
+    ]

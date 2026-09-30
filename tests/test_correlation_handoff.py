@@ -100,3 +100,15 @@ def test_full_coverage_payload_without_the_field_still_loads():
     payload = incident_context_to_payload(_context())
     payload.pop("metric_coverage")
     assert incident_context_from_payload(payload).metric_coverage == []
+
+
+def test_unobserved_dependencies_survive_payload_round_trip_and_default_to_empty():
+    payload = incident_context_to_payload(_context())
+    payload["unobserved_dependencies"] = [
+        {"caller": "a", "callee": "b", "metric_name": "m", "callee_status": "undefined"}
+    ]
+    context = incident_context_from_payload(payload)
+    assert incident_context_to_payload(context) == payload
+
+    payload.pop("unobserved_dependencies")
+    assert incident_context_from_payload(payload).unobserved_dependencies == []

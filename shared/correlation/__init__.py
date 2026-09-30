@@ -17,6 +17,7 @@ No narrative text and no LLM call happens anywhere in this module.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import Literal
 
@@ -82,15 +83,32 @@ class Anomaly(BaseModel):
 class MetricCoverage(BaseModel):
     """Whether one service was actually observed by the anomaly metric in the window.
 
-    "observed": the metric query returned usable telemetry for the service. "unobserved": it
-    did not, i.e. the service is outside the coverage represented here. This is separate from
+    "observed": the metric query returned a usable value for the service. "undefined": the
+    query returned a series for the service but its value was NaN (e.g. 0/0), so there is no
+    value to judge. "unobserved": the query returned no series for the service at all. The
+    payload cannot say why a series is absent (no traffic, target down, stale, or outside the
+    query), and "undefined" does not say why the value was NaN either. This is separate from
     anomalies: an observed service with no anomaly was measured and stayed under the threshold;
-    an unobserved service says nothing about its health.
+    an undefined or unobserved service says nothing about its health.
     """
 
     metric_name: str
     service: str
-    status: Literal["observed", "unobserved"]
+    status: Literal["observed", "undefined", "unobserved"]
+
+
+class UnobservedDependency(BaseModel):
+    """A caller anomalous on `metric_name` whose callee has no usable value for that metric.
+
+    Derived from a trace relationship (`caller` invoked `callee`) and the callee's non-observed
+    `metric_coverage`. It states only that the callee's health is unknown; it makes no claim
+    that the callee is, or is not, the cause of the caller's anomaly.
+    """
+
+    caller: str
+    callee: str
+    metric_name: str
+    callee_status: Literal["undefined", "unobserved"]
 
 
 class IncidentContext(BaseModel):
@@ -111,6 +129,9 @@ class IncidentContext(BaseModel):
     anomalies: list[Anomaly]
     # Empty means no coverage was declared (the caller named no services), not "all observed".
     metric_coverage: list[MetricCoverage] = Field(default_factory=list)
+    # Relationships whose caller has an anomaly on a metric that its callee was not observed by.
+    # Empty when no coverage was declared, not "every dependency observed".
+    unobserved_dependencies: list[UnobservedDependency] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -156,20 +177,28 @@ def detect_anomalies(samples: list[MetricSample], rules: list[AnomalyRule]) -> l
 
 
 def compute_metric_coverage(
-    samples: list[MetricSample], services: list[str], metric_name: str
+    samples: list[MetricSample],
+    services: list[str],
+    metric_name: str,
+    undefined_services: Collection[str] = (),
 ) -> list[MetricCoverage]:
-    """Mark each named service observed if `samples` hold a sample of `metric_name` for it.
+    """Classify each named service as observed, undefined or unobserved for `metric_name`.
 
+    "observed" if `samples` hold a sample of the metric for it; else "undefined" if it is in
+    `undefined_services` (the query returned a NaN series for it); else "unobserved".
     Coverage comes from the samples, never from anomalies: a service that was measured below
     the threshold is observed. Output is sorted by service for determinism.
     """
     seen = {s.service for s in samples if s.metric_name == metric_name}
+    undefined = set(undefined_services)
+
+    def status(service: str) -> Literal["observed", "undefined", "unobserved"]:
+        if service in seen:
+            return "observed"
+        return "undefined" if service in undefined else "unobserved"
+
     return [
-        MetricCoverage(
-            metric_name=metric_name,
-            service=service,
-            status="observed" if service in seen else "unobserved",
-        )
+        MetricCoverage(metric_name=metric_name, service=service, status=status(service))
         for service in sorted(set(services))
     ]
 
@@ -234,11 +263,29 @@ def build_incident_context(
         if relationship.caller in affected or relationship.callee in affected
     ]
 
+    coverage = list(metric_coverage or [])
+    anomalous = {(a.service, a.metric_name) for a in anomalies}
+    unobserved_dependencies = sorted(
+        {
+            (r.caller, r.callee, c.metric_name, c.status)
+            for r in relevant_relationships
+            for c in coverage
+            if (r.caller, c.metric_name) in anomalous
+            if c.service == r.callee and c.status != "observed"
+        }
+    )
+
     return IncidentContext(
         affected_services=sorted(affected),
         relationships=relevant_relationships,
         window_start=window_start,
         window_end=window_end,
         anomalies=sorted(anomalies, key=lambda a: (a.service, a.metric_name, a.timestamp)),
-        metric_coverage=list(metric_coverage or []),
+        metric_coverage=coverage,
+        unobserved_dependencies=[
+            UnobservedDependency(
+                caller=caller, callee=callee, metric_name=metric, callee_status=status
+            )
+            for caller, callee, metric, status in unobserved_dependencies
+        ],
     )

@@ -8,7 +8,11 @@ from shared.correlation import (
     detect_anomalies,
     extract_relationships,
 )
-from shared.correlation.adapters import parse_jaeger_traces, parse_prometheus_vector
+from shared.correlation.adapters import (
+    parse_jaeger_traces,
+    parse_prometheus_undefined_services,
+    parse_prometheus_vector,
+)
 
 TS = 1_767_268_800.0  # 2026-01-01T12:00:00Z
 
@@ -111,3 +115,24 @@ def test_parsed_payloads_feed_the_correlation_core_end_to_end():
 
 def test_empty_jaeger_payload_yields_no_spans():
     assert parse_jaeger_traces({"data": []}) == []
+
+
+def test_prometheus_undefined_services_are_exactly_the_nan_series_with_a_service_label():
+    payload = _vector(
+        _series("payment", "NaN"),
+        _series(None, "NaN"),
+        _series("order", "2"),
+        _series("gateway", "NaN"),
+    )
+    assert parse_prometheus_undefined_services(payload) == ["gateway", "payment"]
+    # The same series stay out of the samples, so the two functions partition the vector.
+    assert [s.service for s in parse_prometheus_vector(payload, "m")] == ["order"]
+
+
+def test_prometheus_undefined_services_rejects_failed_or_non_vector_responses():
+    with pytest.raises(ValueError):
+        parse_prometheus_undefined_services({"status": "error"})
+    with pytest.raises(ValueError):
+        parse_prometheus_undefined_services(
+            {"status": "success", "data": {"resultType": "matrix", "result": []}}
+        )

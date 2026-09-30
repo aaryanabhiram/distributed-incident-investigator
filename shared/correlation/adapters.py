@@ -15,6 +15,15 @@ from typing import Any
 from shared.correlation import MetricSample, SpanRecord
 
 
+def _vector_result(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("status") != "success":
+        raise ValueError(f"Prometheus query did not succeed: {payload.get('status')!r}")
+    data = payload.get("data", {})
+    if data.get("resultType") != "vector":
+        raise ValueError(f"expected a vector result, got {data.get('resultType')!r}")
+    return data.get("result", [])
+
+
 def parse_prometheus_vector(
     payload: dict[str, Any], metric_name: str, service_label: str = "service"
 ) -> list[MetricSample]:
@@ -26,14 +35,8 @@ def parse_prometheus_vector(
     and NaN values (e.g. a 0/0 error rate with no traffic) carry no usable evidence and are
     skipped.
     """
-    if payload.get("status") != "success":
-        raise ValueError(f"Prometheus query did not succeed: {payload.get('status')!r}")
-    data = payload.get("data", {})
-    if data.get("resultType") != "vector":
-        raise ValueError(f"expected a vector result, got {data.get('resultType')!r}")
-
     samples = []
-    for series in data.get("result", []):
+    for series in _vector_result(payload):
         service = series.get("metric", {}).get(service_label)
         timestamp, raw_value = series["value"]
         value = float(raw_value)
@@ -48,6 +51,24 @@ def parse_prometheus_vector(
             )
         )
     return samples
+
+
+def parse_prometheus_undefined_services(
+    payload: dict[str, Any], service_label: str = "service"
+) -> list[str]:
+    """Services whose series is present in a vector response but has a NaN value.
+
+    These are exactly the series `parse_prometheus_vector` skips as NaN. A NaN means the query
+    evaluated to no number for that service (e.g. 0/0); it does not say why. Series without the
+    service label are ignored. Sorted and de-duplicated.
+    """
+    return sorted(
+        {
+            series["metric"][service_label]
+            for series in _vector_result(payload)
+            if service_label in series.get("metric", {}) and math.isnan(float(series["value"][1]))
+        }
+    )
 
 
 def parse_jaeger_traces(payload: dict[str, Any]) -> list[SpanRecord]:

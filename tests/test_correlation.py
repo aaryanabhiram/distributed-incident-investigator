@@ -262,3 +262,148 @@ def test_coverage_does_not_change_affected_services_or_anomalies() -> None:
     assert compute_metric_coverage(samples, ["payment", "gateway", "payment"], "error_rate") == (
         coverage
     )  # deterministic and de-duplicated
+
+
+# ---------------------------------------------------------------- unobserved dependencies
+
+
+def _chain_spans() -> list[SpanRecord]:
+    return [
+        _span("s1", "gateway", None),
+        _span("s2", "order", "s1"),
+        _span("s3", "payment", "s2"),
+    ]
+
+
+def _latency_anomalies(*services: str):
+    samples = [_sample(s, 1500.0, metric="latency") for s in services]
+    return detect_anomalies(samples, [AnomalyRule(metric_name="latency", threshold=500)])
+
+
+def _cov(service: str, status: str) -> MetricCoverage:
+    return MetricCoverage(metric_name="latency", service=service, status=status)
+
+
+def test_coverage_marks_nan_only_services_undefined_and_absent_ones_unobserved() -> None:
+    samples = [_sample("gateway", 0.9)]
+    coverage = compute_metric_coverage(
+        samples, ["gateway", "order", "payment"], "error_rate", undefined_services=["order"]
+    )
+    assert [(c.service, c.status) for c in coverage] == [
+        ("gateway", "observed"),
+        ("order", "undefined"),
+        ("payment", "unobserved"),
+    ]
+
+
+def test_a_real_sample_wins_over_undefined() -> None:
+    (entry,) = compute_metric_coverage(
+        [_sample("order", 0.2)], ["order"], "error_rate", undefined_services=["order"]
+    )
+    assert entry.status == "observed"
+
+
+def test_affected_caller_of_unobserved_callee_is_listed_with_direction() -> None:
+    # Evaluation 5 topology: gateway and order measured slow, payment not measured.
+    context = build_incident_context(
+        _latency_anomalies("gateway", "order"),
+        _chain_spans(),
+        T0,
+        T0,
+        [_cov("gateway", "observed"), _cov("order", "observed"), _cov("payment", "unobserved")],
+    )
+    assert [r.caller + "->" + r.callee for r in context.relationships] == [
+        "gateway->order",
+        "order->payment",
+    ]
+    assert [(d.caller, d.callee, d.callee_status) for d in context.unobserved_dependencies] == [
+        ("order", "payment", "unobserved")
+    ]
+    assert context.affected_services == ["gateway", "order"]  # unchanged by coverage
+
+
+def test_undefined_callee_is_listed_as_undefined_not_unobserved() -> None:
+    context = build_incident_context(
+        _latency_anomalies("gateway", "order"),
+        _chain_spans(),
+        T0,
+        T0,
+        [_cov("gateway", "observed"), _cov("order", "observed"), _cov("payment", "undefined")],
+    )
+    assert [d.callee_status for d in context.unobserved_dependencies] == ["undefined"]
+
+
+def test_fully_observed_dependencies_yield_none() -> None:
+    context = build_incident_context(
+        _latency_anomalies("gateway", "order", "payment"),
+        _chain_spans(),
+        T0,
+        T0,
+        [_cov("gateway", "observed"), _cov("order", "observed"), _cov("payment", "observed")],
+    )
+    assert context.unobserved_dependencies == []
+
+
+def test_no_declared_coverage_yields_no_unobserved_dependencies() -> None:
+    context = build_incident_context(_latency_anomalies("order"), _chain_spans(), T0, T0)
+    assert context.unobserved_dependencies == []
+    # A callee missing from the declared coverage is undeclared, not unobserved.
+    partial = build_incident_context(
+        _latency_anomalies("order"), _chain_spans(), T0, T0, [_cov("gateway", "observed")]
+    )
+    assert partial.unobserved_dependencies == []
+
+
+def test_unobserved_callers_and_unaffected_callers_are_not_listed() -> None:
+    # gateway is unobserved but is the *caller*; order->payment has an unaffected caller.
+    context = build_incident_context(
+        _latency_anomalies("payment"),
+        _chain_spans(),
+        T0,
+        T0,
+        [_cov("gateway", "unobserved"), _cov("order", "observed"), _cov("payment", "observed")],
+    )
+    assert context.unobserved_dependencies == []
+
+
+def test_no_dependency_is_inferred_without_a_trace_edge() -> None:
+    spans = [_span("s1", "gateway", None), _span("s2", "order", "s1")]  # payment never called
+    context = build_incident_context(
+        _latency_anomalies("gateway", "order"),
+        spans,
+        T0,
+        T0,
+        [_cov("order", "observed"), _cov("payment", "unobserved")],
+    )
+    assert context.unobserved_dependencies == []
+
+
+def test_unobserved_dependencies_are_deterministic_and_input_order_independent() -> None:
+    coverage = [_cov("payment", "unobserved"), _cov("order", "observed")]
+    spans = _chain_spans()
+    a = build_incident_context(_latency_anomalies("order", "gateway"), spans, T0, T0, coverage)
+    b = build_incident_context(
+        _latency_anomalies("gateway", "order"), list(reversed(spans)), T0, T0, coverage[::-1]
+    )
+    assert a.unobserved_dependencies == b.unobserved_dependencies
+
+
+def test_dependency_is_matched_to_the_metric_the_caller_is_anomalous_on() -> None:
+    # order is anomalous on latency only. payment is observed for latency but unobserved for
+    # error_rate, so no dependency may be reported for error_rate.
+    spans = _chain_spans()
+    both = [
+        _cov("payment", "observed"),
+        MetricCoverage(metric_name="error_rate", service="payment", status="unobserved"),
+    ]
+    context = build_incident_context(_latency_anomalies("order"), spans, T0, T0, both)
+    assert context.unobserved_dependencies == []
+
+    # Once the caller is anomalous on error_rate too, that metric's gap is reported.
+    anomalies = _latency_anomalies("order") + detect_anomalies(
+        [_sample("order", 0.9)], [AnomalyRule(metric_name="error_rate", threshold=0.1)]
+    )
+    context = build_incident_context(anomalies, spans, T0, T0, both)
+    assert [(d.callee, d.metric_name) for d in context.unobserved_dependencies] == [
+        ("payment", "error_rate")
+    ]

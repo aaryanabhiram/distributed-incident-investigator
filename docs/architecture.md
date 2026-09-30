@@ -137,20 +137,32 @@ deterministically produce the same incident context.
   the services that directly produced anomalies, and keeps only relationships touching one of
   them — exactly one hop, no transitive propagation. `IncidentContext` carries no log evidence
   yet: there is no programmatic log store to source it from. `IncidentContext.metric_coverage`
-  (`MetricCoverage`: metric, service, `observed`/`unobserved`) is separate metadata and does not
-  affect anomalies or `affected_services`: `observed` means the metric query returned a sample
-  for the service in the window (even if under the threshold), `unobserved` means it did not, so
-  the service is outside the represented coverage and its health is unknown. An empty list means
-  no coverage was declared, not that everything was observed. Absence of an anomaly is never
-  turned into `unobserved`.
+  (`MetricCoverage`: metric, service, `observed`/`undefined`/`unobserved`) is separate metadata
+  and does not affect anomalies or `affected_services`: `observed` means the metric query
+  returned a numeric sample for the service in the window (even if under the threshold);
+  `undefined` means it returned a series for the service whose value was `NaN` (e.g. 0/0);
+  `unobserved` means it returned no series for the service. For both of the latter the service's
+  health is unknown. The payload does not say *why*: a `NaN` may be no traffic, and an absent
+  series may be no traffic, a down target, stale data or a service outside the query. Those
+  causes are not distinguished. An empty list means no coverage was declared, not that everything
+  was observed. Absence of an anomaly is never turned into `undefined`/`unobserved`.
+  `IncidentContext.unobserved_dependencies` (`UnobservedDependency`: caller, callee, metric,
+  `callee_status` `undefined`/`unobserved`) lists each trace relationship whose caller has an
+  anomaly on a metric for which the callee's declared coverage is not `observed`. It is derived only
+  from an existing caller → callee edge plus that coverage; it states that the callee's health is
+  unknown and makes no claim about causation. A callee absent from the declared coverage is
+  undeclared, not listed. If one query returns several series for a service, any numeric sample
+  makes it `observed` (the shipped queries aggregate to one series per service). Empty means none identified or no coverage declared.
 - **Adapters (`adapters.py`)** — pure translation of decoded backend JSON into core inputs:
   `parse_prometheus_vector` (instant-query vectors; `service` label from the scrape job; NaN
-  and label-less series skipped) and `parse_jaeger_traces` (`/api/traces`; service via
+  and label-less series skipped) with `parse_prometheus_undefined_services` (the services whose
+  series were skipped as NaN) and `parse_jaeger_traces` (`/api/traces`; service via
   `processID`, parent via `CHILD_OF` reference). No I/O.
 - **Fetchers (`fetch.py`)** — thin HTTP layer: `fetch_prometheus_samples` (`/api/v1/query`) and
   `fetch_jaeger_spans` (`/api/traces`, window as epoch microseconds). Each takes an
   `httpx.Client` with the backend `base_url` (injectable, so tests use `httpx.MockTransport`),
   raises on HTTP errors, decodes JSON and hands it to the adapter; no parsing of its own.
+  `fetch_prometheus_vector` does one request and returns both the samples and the NaN services.
   Datetime contract: every datetime that becomes a query timestamp (`at`, `start`, `end`, and
   `run_correlation`'s window) must be timezone-aware; naive values raise `ValueError` before any
   request, because `datetime.timestamp()` would otherwise read them as host-local time. The core
@@ -173,8 +185,9 @@ deterministically produce the same incident context.
   responses (Prometheus vectors incl. a `NaN` and an empty one; two Jaeger checkout traces with
   tags stripped) are checked in with provenance in the fixtures README and drive
   `tests/test_backend_payloads.py` offline. Not covered by real payloads: Prometheus error
-  responses, Jaeger truncation at `limit`, traces missing a parent span. A test pins the known
-  gap that a `NaN` (no traffic) response reads as `unobserved`.
+  responses, Jaeger truncation at `limit`, traces missing a parent span. The `NaN` and empty
+  fixtures pin that a returned-`NaN` series reads as `undefined` and an absent series as
+  `unobserved`.
 - **FastAPI note** — services pass `telemetry={"auto_configure": False}` to `FastAPI()`. Newer
   FastAPI releases auto-configure OTel when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and fail startup
   without the `fastapi[opentelemetry]` extra; the repo does its own explicit OTel setup.
@@ -202,7 +215,8 @@ contract is provider-independent and contains no root-cause logic; tests use a p
 **LLM executor (built, `shared/investigator/llm.py` + `anthropic.py`).** `LLMInvestigator`
 implements the protocol as a single bounded inference call: `build_prompt` (pure) renders the
 `IncidentContext` with explicit anomaly/relationship indices, evidence-boundary rules and the
-caller → callee edge semantics (a callee can contribute to its callers' latency; never reversed); an
+caller → callee edge semantics (a callee can contribute to its callers' latency; never reversed),
+the `metric_coverage` statuses and `unobserved_dependencies` (unknown health, not a causal claim); an
 injected `CompleteFn(prompt, json_schema) -> raw JSON text` does the transport; the reply is parsed
 with `Hypothesis.model_validate_json` and checked with `validate_evidence`. Invalid output raises —
 no repair, clamping, retries, or fallback hypothesis. No tools, agent loop, memory, or state.

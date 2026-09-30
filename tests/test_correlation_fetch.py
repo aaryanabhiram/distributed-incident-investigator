@@ -4,7 +4,11 @@ import httpx
 import pytest
 
 from shared.correlation import MetricSample
-from shared.correlation.fetch import fetch_jaeger_spans, fetch_prometheus_samples
+from shared.correlation.fetch import (
+    fetch_jaeger_spans,
+    fetch_prometheus_samples,
+    fetch_prometheus_vector,
+)
 
 PROM_BODY = {
     "status": "success",
@@ -160,3 +164,27 @@ def test_aware_datetimes_yield_host_independent_epoch_timestamps():
     # Same instant in different offsets -> identical epoch, and equal to the fixed UTC epoch
     # (not derived from the host timezone).
     assert [float(r.url.params["time"]) for r in seen] == [1_700_000_000.0, 1_700_000_000.0]
+
+
+def test_fetch_prometheus_vector_returns_samples_and_nan_services_from_one_request():
+    seen = []
+    body = {
+        "status": "success",
+        "data": {
+            "resultType": "vector",
+            "result": [
+                {"metric": {"service": "order"}, "value": [1_700_000_000, "2"]},
+                {"metric": {"service": "payment"}, "value": [1_700_000_000, "NaN"]},
+            ],
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=body)
+
+    samples, undefined = fetch_prometheus_vector(_client(handler), "q", "m")
+
+    assert len(seen) == 1
+    assert [(s.service, s.value) for s in samples] == [("order", 2.0)]
+    assert undefined == ["payment"]
