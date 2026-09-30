@@ -128,3 +128,23 @@ def test_serialization_is_json_safe_and_deterministic():
     assert Hypothesis.model_validate(json.loads(dumped)) == first
     input_json = json.dumps(build_investigator_input(_payload()).model_dump(mode="json"))
     assert input_json == json.dumps(build_investigator_input(_payload()).model_dump(mode="json"))
+
+
+def test_status_defaults_to_identified_and_accepts_only_known_values():
+    assert _hypothesis().status == "identified"
+    assert _hypothesis(status="undetermined").status == "undetermined"
+    with pytest.raises(ValidationError):
+        _hypothesis(status="unsure")
+
+
+def test_validate_evidence_bounds_unobserved_dependency_references():
+    payload = _payload()
+    payload["unobserved_dependencies"] = [
+        {"caller": "order", "callee": "payment", "metric_name": "m", "callee_status": "undefined"}
+    ]
+    ok = _hypothesis(supporting_evidence=[EvidenceRef(kind="unobserved_dependency", index=0)])
+    assert investigate(payload, lambda _: ok) == ok
+
+    bad = _hypothesis(supporting_evidence=[EvidenceRef(kind="unobserved_dependency", index=1)])
+    with pytest.raises(ValueError, match=r"unobserved_dependency\[1\] not in incident context"):
+        investigate(payload, lambda _: bad)

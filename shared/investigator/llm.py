@@ -47,11 +47,20 @@ invoked a callee whose coverage for that same metric is undefined or unobserved.
 only that the callee's health is unknown; it does not show that the callee is or is not the \
 cause. An empty list means none were identified (or no coverage was declared).
 - You cannot inspect services, query any system, or take actions. Do not propose remediation.
-- Produce exactly one hypothesis: the single most likely root cause, not a list of guesses.
+- Produce exactly one hypothesis, not a list of guesses. Set status to "identified" and name \
+the single most likely origin in root_cause only when the evidence supports choosing it over \
+the other explanations consistent with the evidence. Otherwise set status to "undetermined". \
+Typical cases: an affected service calls a callee listed in unobserved_dependencies and nothing \
+in the context separates the caller's own contribution from the callee's, or several services \
+are equally consistent with the evidence. An unobserved or undefined callee is unknown, not \
+faulty. When undetermined, root_cause must state what is established and what is unknown, must \
+not present any service as the established or most likely origin, and should cite the relevant \
+unobserved_dependency items.
 - supporting_evidence must be a non-empty list of unique references. Each reference has \
-kind ("anomaly" or "relationship") and the zero-based index shown in the context for an item \
-that actually exists.
-- confidence is a number from 0 to 1 expressing your uncertainty. It is an estimate, not proof.
+kind ("anomaly", "relationship" or "unobserved_dependency") and the zero-based index shown in \
+the context for an item that actually exists.
+- confidence is a number from 0 to 1 expressing your confidence in the conclusion you state, \
+whichever status. It is an estimate, not proof.
 - Respond only with JSON matching the required schema."""
 
 
@@ -59,6 +68,17 @@ that actually exists.
 class Prompt:
     system: str
     user: str
+
+
+def response_schema() -> dict[str, Any]:
+    """`Hypothesis`' JSON schema with `status` required, so a provider must state it.
+
+    `Hypothesis` defaults `status` for old serialized data; a model reply that omits it would
+    silently read as a confident "identified", so model output must always say it.
+    """
+    schema = Hypothesis.model_json_schema()
+    schema["required"] = sorted({*schema.get("required", []), "status"})
+    return schema
 
 
 # (prompt, JSON schema the response must follow) -> raw JSON text from the model.
@@ -75,7 +95,9 @@ def build_prompt(investigator_input: InvestigatorInput) -> Prompt:
         "anomalies": [{"index": i, **a} for i, a in enumerate(incident["anomalies"])],
         "relationships": [{"index": i, **r} for i, r in enumerate(incident["relationships"])],
         "metric_coverage": incident["metric_coverage"],
-        "unobserved_dependencies": incident["unobserved_dependencies"],
+        "unobserved_dependencies": [
+            {"index": i, **d} for i, d in enumerate(incident["unobserved_dependencies"])
+        ],
     }
     user = "Incident context (complete evidence; cite items by kind and index):\n" + json.dumps(
         indexed, indent=2, sort_keys=True
@@ -90,8 +112,10 @@ class LLMInvestigator:
         self._complete = complete
 
     def __call__(self, investigator_input: InvestigatorInput) -> Hypothesis:
-        raw = self._complete(build_prompt(investigator_input), Hypothesis.model_json_schema())
+        raw = self._complete(build_prompt(investigator_input), response_schema())
         # Raises pydantic.ValidationError for malformed JSON or contract violations.
         hypothesis = Hypothesis.model_validate_json(raw)
+        if "status" not in hypothesis.model_fields_set:
+            raise ValueError("model output omitted the required 'status' field")
         validate_evidence(investigator_input, hypothesis)
         return hypothesis

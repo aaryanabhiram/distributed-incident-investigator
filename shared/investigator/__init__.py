@@ -28,15 +28,31 @@ class InvestigatorInput(BaseModel):
 class EvidenceRef(BaseModel):
     """Points at one piece of evidence inside the input's `IncidentContext` by position."""
 
-    kind: Literal["anomaly", "relationship"]
+    kind: Literal["anomaly", "relationship", "unobserved_dependency"]
     index: int = Field(ge=0)
 
 
 class Hypothesis(BaseModel):
-    """The investigator's structured result."""
+    """The investigator's structured result.
 
-    root_cause: str = Field(min_length=1, description="Likely root cause")
-    confidence: float = Field(ge=0.0, le=1.0)
+    `status` lets the investigator say the evidence cannot support choosing an origin:
+    "identified" means `root_cause` names the most likely origin; "undetermined" means it states
+    what is established and what is unknown instead. Nothing here can check that a stated cause is
+    correct, or that an "undetermined" text names no origin; only the cited evidence is validated.
+    `status` defaults to "identified" so hypotheses serialized before it existed still load.
+    """
+
+    status: Literal["identified", "undetermined"] = Field(
+        default="identified",
+        description=(
+            "'identified': root_cause names the most likely origin. 'undetermined': the evidence "
+            "cannot support choosing one; root_cause states what is established and what is unknown"
+        ),
+    )
+    root_cause: str = Field(min_length=1, description="Likely root cause, or what is unknown")
+    confidence: float = Field(
+        ge=0.0, le=1.0, description="Confidence in the stated conclusion, whichever status"
+    )
     supporting_evidence: list[EvidenceRef] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -61,7 +77,11 @@ def build_investigator_input(payload: dict[str, Any]) -> InvestigatorInput:
 def validate_evidence(investigator_input: InvestigatorInput, hypothesis: Hypothesis) -> None:
     """Raise `ValueError` if the hypothesis cites evidence absent from the input."""
     incident = investigator_input.incident
-    limits = {"anomaly": len(incident.anomalies), "relationship": len(incident.relationships)}
+    limits = {
+        "anomaly": len(incident.anomalies),
+        "relationship": len(incident.relationships),
+        "unobserved_dependency": len(incident.unobserved_dependencies),
+    }
     for ref in hypothesis.supporting_evidence:
         if ref.index >= limits[ref.kind]:
             raise ValueError(f"evidence reference {ref.kind}[{ref.index}] not in incident context")

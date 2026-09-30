@@ -99,7 +99,7 @@ Compose stack (`tests/fixtures/backends/`, provenance in its README); the evalua
 committed in `shared/correlation/queries.py` (reconstructed from the evaluation history). `shared/correlation/handoff.py`
 converts an `IncidentContext` to/from a JSON-safe dict — the boundary the investigator
 consumes. `shared/investigator/` defines the investigator contract (`InvestigatorInput` →
-`Hypothesis` with root cause, confidence and evidence references) and one LLM-backed executor
+`Hypothesis` with status `identified`/`undetermined`, root cause, confidence and evidence references) and one LLM-backed executor
 (`llm.py`, with an Anthropic Messages API transport in `anthropic.py`): a single bounded call whose
 output is validated, never repaired. It needs `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`; tests use a
 mock and make no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
@@ -108,8 +108,10 @@ orchestration-only entry point: `run_correlation` → handoff payload → `inves
 `IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed`,
 `undefined` (a `NaN` series) or `unobserved` (no series) (set via `run_correlation(services=...)`), so
 "no anomaly" is distinguishable from "not measured"; `unobserved_dependencies` lists anomalous callers of
-such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; ambiguous
-evidence is not fully handled) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
+such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; they predate the
+`undetermined` status) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
+Whether a real model uses `undetermined` sensibly is untested; the manual, user-run procedure is in
+[docs/manual-evaluation.md](docs/manual-evaluation.md).
 
 ## Getting started
 

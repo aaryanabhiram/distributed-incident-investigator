@@ -14,7 +14,7 @@ from shared.investigator.anthropic import (
     anthropic_investigator_from_env,
     wire_schema,
 )
-from shared.investigator.llm import LLMInvestigator, Prompt, build_prompt
+from shared.investigator.llm import LLMInvestigator, Prompt, build_prompt, response_schema
 
 START = datetime(2023, 11, 14, 22, 0, 0, tzinfo=timezone.utc)
 END = datetime(2023, 11, 14, 22, 30, 0, tzinfo=timezone.utc)
@@ -42,6 +42,7 @@ def _payload() -> dict:
 
 def _answer(**overrides) -> str:
     fields = {
+        "status": "identified",
         "root_cause": "payment service is failing",
         "confidence": 0.7,
         "supporting_evidence": [
@@ -75,7 +76,7 @@ def test_prompt_is_bounded_and_indexed():
     assert context["anomalies"][0]["metric_name"] == "error_rate"
     assert context["relationships"] == [{"index": 0, "caller": "order", "callee": "payment"}]
     assert context["affected_services"] == ["payment"]
-    assert schema == Hypothesis.model_json_schema()
+    assert schema == response_schema()
 
 
 def test_prompt_defines_relationship_direction_semantics():
@@ -237,7 +238,9 @@ def test_prompt_exposes_unobserved_dependencies_and_their_non_causal_semantics()
     ]
     prompt = build_prompt(build_investigator_input(payload))
     context = json.loads(prompt.user.split("\n", 1)[1])
-    assert context["unobserved_dependencies"] == payload["unobserved_dependencies"]
+    assert context["unobserved_dependencies"] == [
+        {"index": 0, **payload["unobserved_dependencies"][0]}
+    ]
     system = prompt.system.replace("\n", " ")
     assert '"undefined"' in system and "no numeric value" in system
     assert "unobserved_dependencies lists relationships" in system
@@ -247,3 +250,84 @@ def test_prompt_exposes_unobserved_dependencies_and_their_non_causal_semantics()
 def test_prompt_with_no_unobserved_dependencies_shows_an_empty_list():
     prompt = build_prompt(build_investigator_input(_payload()))
     assert json.loads(prompt.user.split("\n", 1)[1])["unobserved_dependencies"] == []
+
+
+# ---------------------------------------------------------------- uncertainty
+
+
+def _payload_with_unobserved_callee() -> dict:
+    payload = _payload()
+    payload["metric_coverage"] = [
+        {"metric_name": "error_rate", "service": "payment", "status": "unobserved"}
+    ]
+    payload["unobserved_dependencies"] = [
+        {
+            "caller": "order",
+            "callee": "payment",
+            "metric_name": "error_rate",
+            "callee_status": "unobserved",
+        }
+    ]
+    return payload
+
+
+def _undetermined(**overrides) -> str:
+    fields = {
+        "status": "undetermined",
+        "root_cause": "order is slow; payment, which order calls, was not measured",
+        "confidence": 0.4,
+        "supporting_evidence": [
+            {"kind": "anomaly", "index": 0},
+            {"kind": "unobserved_dependency", "index": 0},
+        ],
+    }
+    fields.update(overrides)
+    return _answer(**fields)
+
+
+def test_undetermined_hypothesis_is_accepted_with_its_evidence_preserved():
+    result = investigate(_payload_with_unobserved_callee(), LLMInvestigator(_fake(_undetermined())))
+    assert result.status == "undetermined"
+    assert EvidenceRef(kind="unobserved_dependency", index=0) in result.supporting_evidence
+    assert result.model_dump(mode="json")["status"] == "undetermined"
+
+
+def test_undetermined_still_requires_valid_evidence():
+    # No unobserved_dependency exists in this incident, so citing one is rejected...
+    with pytest.raises(ValueError, match=r"unobserved_dependency\[0\] not in incident context"):
+        investigate(_payload(), LLMInvestigator(_fake(_undetermined())))
+    # ...and an empty evidence list is rejected for either status.
+    with pytest.raises(ValidationError):
+        investigate(
+            _payload(),
+            LLMInvestigator(_fake(_undetermined(supporting_evidence=[]))),
+        )
+
+
+def test_unknown_status_is_rejected():
+    with pytest.raises(ValidationError):
+        investigate(_payload(), LLMInvestigator(_fake(_answer(status="maybe"))))
+
+
+def test_model_output_must_state_status_but_legacy_hypotheses_default_to_identified():
+    raw = json.loads(_answer())
+    del raw["status"]
+    with pytest.raises(ValueError, match="omitted the required 'status'"):
+        investigate(_payload(), LLMInvestigator(_fake(json.dumps(raw))))
+
+    legacy = Hypothesis.model_validate(raw)  # e.g. a hypothesis serialized before `status`
+    assert legacy.status == "identified"
+    assert "status" in response_schema()["required"]
+    assert "status" not in Hypothesis.model_json_schema().get("required", [])
+
+
+def test_prompt_indexes_unobserved_dependencies_and_defines_the_undetermined_choice():
+    prompt = build_prompt(build_investigator_input(_payload_with_unobserved_callee()))
+    context = json.loads(prompt.user.split("\n", 1)[1])
+    assert context["unobserved_dependencies"][0]["index"] == 0
+    system = prompt.system.replace("\n", " ")
+    assert 'status to "undetermined"' in system
+    assert "unknown, not faulty" in system
+    assert "must not present any service as the established or most likely origin" in system
+    assert '"unobserved_dependency"' in system
+    assert "exactly one hypothesis" in system  # still a single hypothesis, never a list

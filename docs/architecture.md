@@ -206,25 +206,35 @@ of evidence in the incident context support it. The LLM's input is bounded by co
 reviewable, and decoupled from how large the system's telemetry volume actually is.
 
 **Contract (built, `shared/investigator/`).** `InvestigatorInput` wraps one `IncidentContext`
-(built from a handoff payload). The result is a `Hypothesis`: `root_cause`, `confidence` (0–1)
+(built from a handoff payload). The result is a `Hypothesis`: `status`, `root_cause`, `confidence` (0–1)
 and `supporting_evidence`, a non-empty list of `EvidenceRef(kind, index)` pointing at
-anomalies/relationships in the input. `investigate(payload, investigator)` runs any callable
-satisfying the `Investigator` protocol and rejects evidence references absent from the input. The
-contract is provider-independent and contains no root-cause logic; tests use a plain test double.
+anomalies, relationships or unobserved dependencies in the input. `status` is `identified`
+(`root_cause` names the most likely origin) or `undetermined` (the evidence cannot support
+choosing one; `root_cause` states what is established and what is unknown). It defaults to
+`identified` so hypotheses serialized before it existed still load. `investigate(payload,
+investigator)` runs any callable satisfying the `Investigator` protocol and rejects evidence
+references absent from the input, for either status. What is *not* checked: that a stated cause is
+correct, or that an `undetermined` text names no origin; the schema constrains shape, not
+diagnosis. The contract is provider-independent and contains no root-cause logic; tests use a
+plain test double.
 
 **LLM executor (built, `shared/investigator/llm.py` + `anthropic.py`).** `LLMInvestigator`
 implements the protocol as a single bounded inference call: `build_prompt` (pure) renders the
-`IncidentContext` with explicit anomaly/relationship indices, evidence-boundary rules and the
+`IncidentContext` with explicit anomaly/relationship/unobserved-dependency indices, evidence-boundary rules and the
 caller → callee edge semantics (a callee can contribute to its callers' latency; never reversed),
-the `metric_coverage` statuses and `unobserved_dependencies` (unknown health, not a causal claim); an
+the `metric_coverage` statuses and `unobserved_dependencies` (unknown health, not a causal claim),
+and when to answer `undetermined` instead of naming an origin; an
 injected `CompleteFn(prompt, json_schema) -> raw JSON text` does the transport; the reply is parsed
-with `Hypothesis.model_validate_json` and checked with `validate_evidence`. Invalid output raises —
+with `Hypothesis.model_validate_json` and checked with `validate_evidence`. The schema sent to
+the provider marks `status` required, and a reply that omits it raises (it would otherwise default
+to a confident `identified`). Invalid output raises —
 no repair, clamping, retries, or fallback hypothesis. No tools, agent loop, memory, or state.
 The provider is Anthropic's Messages API with native JSON-schema output, called via `httpx` (an
 existing dependency — no SDK added). Configuration: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 (required), `ANTHROPIC_BASE_URL` (optional). Swapping providers means writing another `CompleteFn`.
 Tests use a fake `CompleteFn` and `httpx.MockTransport`; no live calls. One-off live evaluation results are recorded in
-[investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark). Manual use:
+[investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark); the procedure for the pending live re-run of the ambiguous case
+with the `undetermined` status is [manual-evaluation.md](manual-evaluation.md). Manual use:
 `anthropic_investigator_from_env()` returns an `Investigator` to pass to `investigate(payload, ...)`.
 
 The request (`POST /v1/messages`, `x-api-key` + `anthropic-version: 2023-06-01`, `max_tokens`,
