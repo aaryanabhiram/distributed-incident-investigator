@@ -104,6 +104,10 @@ output is validated, never repaired. It needs `ANTHROPIC_API_KEY` and `ANTHROPIC
 mock and make no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
 provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. OpenAI is not a dependency, module or configuration of this repo, and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
 orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`.
+`IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed` or
+`unobserved` (set via `run_correlation(services=...)`), so "no anomaly" is distinguishable from "not
+measured". One-off live evaluations of the investigator (observations, not a benchmark; ambiguous
+evidence is not fully handled) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
 
 ## Getting started
 
