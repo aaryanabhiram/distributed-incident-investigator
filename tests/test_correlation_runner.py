@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from shared.correlation import AnomalyRule, ServiceRelationship
+from shared.correlation import AnomalyRule, MetricCoverage, ServiceRelationship
 from shared.correlation.runner import run_correlation
 
 START = datetime(2023, 11, 14, 22, 0, 0, tzinfo=timezone.utc)
@@ -130,3 +130,26 @@ def test_run_propagates_jaeger_error():
     )
     with pytest.raises(httpx.HTTPStatusError):
         _run(prom, jaeger)
+
+
+def test_run_without_services_declares_no_coverage():
+    prom, jaeger = _clients(
+        lambda r: httpx.Response(200, json=_prom_body("0.5")),
+        lambda r: httpx.Response(200, json=JAEGER_BODY),
+    )
+    assert _run(prom, jaeger).metric_coverage == []
+
+
+def test_run_marks_services_outside_the_query_unobserved():
+    prom, jaeger = _clients(
+        lambda r: httpx.Response(200, json=_prom_body("0.05")),  # payment measured, no anomaly
+        lambda r: httpx.Response(200, json=JAEGER_BODY),
+    )
+    context = run_correlation(
+        prom, jaeger, START, END, "q", "error_rate", RULES, "gateway", ["payment", "order"]
+    )
+    assert context.affected_services == []
+    assert context.metric_coverage == [
+        MetricCoverage(metric_name="error_rate", service="order", status="unobserved"),
+        MetricCoverage(metric_name="error_rate", service="payment", status="observed"),
+    ]

@@ -16,6 +16,7 @@ from shared.correlation import (
     AnomalyRule,
     IncidentContext,
     build_incident_context,
+    compute_metric_coverage,
     detect_anomalies,
 )
 from shared.correlation.fetch import fetch_jaeger_spans, fetch_prometheus_samples
@@ -30,6 +31,7 @@ def run_correlation(
     metric_name: str,
     rules: list[AnomalyRule],
     trace_service: str,
+    services: list[str] | None = None,
 ) -> IncidentContext:
     """Build an `IncidentContext` for [window_start, window_end].
 
@@ -37,8 +39,13 @@ def run_correlation(
     for aggregating over the window (e.g. a `[5m]` range selector). Jaeger traces involving
     `trace_service` in the window are fetched, and their parent/child links give the
     relationships.
+
+    `services` optionally names the services the metric query is meant to cover; each is marked
+    observed or unobserved in `metric_coverage` from whether the query returned a sample for it.
+    Omitted, no coverage is declared. Anomaly and relationship semantics are unaffected.
     """
     samples = fetch_prometheus_samples(prometheus, query, metric_name, at=window_end)
     spans = fetch_jaeger_spans(jaeger, trace_service, window_start, window_end)
     anomalies = detect_anomalies(samples, rules)
-    return build_incident_context(anomalies, spans, window_start, window_end)
+    coverage = compute_metric_coverage(samples, services, metric_name) if services else None
+    return build_incident_context(anomalies, spans, window_start, window_end, coverage)

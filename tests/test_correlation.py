@@ -2,10 +2,12 @@ from datetime import datetime, timedelta
 
 from shared.correlation import (
     AnomalyRule,
+    MetricCoverage,
     MetricSample,
     ServiceRelationship,
     SpanRecord,
     build_incident_context,
+    compute_metric_coverage,
     detect_anomalies,
     extract_relationships,
 )
@@ -222,3 +224,41 @@ def test_build_incident_context_is_deterministic_for_identical_input() -> None:
     second = build_incident_context(anomalies, spans, T0, T0 + timedelta(minutes=1))
 
     assert first == second
+
+
+def test_coverage_marks_sampled_services_observed_and_others_unobserved() -> None:
+    samples = [_sample("gateway", 0.9), _sample("order", 0.0)]
+    coverage = compute_metric_coverage(samples, ["payment", "order", "gateway"], "error_rate")
+    assert coverage == [
+        MetricCoverage(metric_name="error_rate", service="gateway", status="observed"),
+        MetricCoverage(metric_name="error_rate", service="order", status="observed"),
+        MetricCoverage(metric_name="error_rate", service="payment", status="unobserved"),
+    ]
+
+
+def test_no_anomaly_is_observed_not_unobserved() -> None:
+    # order was measured below the threshold: healthy-as-observed, not "unobserved".
+    samples = [_sample("order", 0.0)]
+    (entry,) = compute_metric_coverage(samples, ["order"], "error_rate")
+    assert entry.status == "observed"
+    assert detect_anomalies(samples, [AnomalyRule(metric_name="error_rate", threshold=0.1)]) == []
+
+
+def test_coverage_only_counts_samples_of_the_named_metric() -> None:
+    samples = [_sample("order", 1.0, metric="latency")]
+    (entry,) = compute_metric_coverage(samples, ["order"], "error_rate")
+    assert entry.status == "unobserved"
+
+
+def test_coverage_does_not_change_affected_services_or_anomalies() -> None:
+    samples = [_sample("gateway", 0.9)]
+    anomalies = detect_anomalies(samples, [AnomalyRule(metric_name="error_rate", threshold=0.1)])
+    coverage = compute_metric_coverage(samples, ["gateway", "payment"], "error_rate")
+    with_cov = build_incident_context(anomalies, [], T0, T0, coverage)
+    without = build_incident_context(anomalies, [], T0, T0)
+    assert with_cov.affected_services == without.affected_services == ["gateway"]
+    assert with_cov.anomalies == without.anomalies
+    assert without.metric_coverage == []  # no coverage declared
+    assert compute_metric_coverage(samples, ["payment", "gateway", "payment"], "error_rate") == (
+        coverage
+    )  # deterministic and de-duplicated

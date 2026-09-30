@@ -136,7 +136,13 @@ deterministically produce the same incident context.
   (never from service-name matching). `build_incident_context` sets `affected_services` to only
   the services that directly produced anomalies, and keeps only relationships touching one of
   them — exactly one hop, no transitive propagation. `IncidentContext` carries no log evidence
-  yet: there is no programmatic log store to source it from.
+  yet: there is no programmatic log store to source it from. `IncidentContext.metric_coverage`
+  (`MetricCoverage`: metric, service, `observed`/`unobserved`) is separate metadata and does not
+  affect anomalies or `affected_services`: `observed` means the metric query returned a sample
+  for the service in the window (even if under the threshold), `unobserved` means it did not, so
+  the service is outside the represented coverage and its health is unknown. An empty list means
+  no coverage was declared, not that everything was observed. Absence of an anomaly is never
+  turned into `unobserved`.
 - **Adapters (`adapters.py`)** — pure translation of decoded backend JSON into core inputs:
   `parse_prometheus_vector` (instant-query vectors; `service` label from the scrape job; NaN
   and label-less series skipped) and `parse_jaeger_traces` (`/api/traces`; service via
@@ -146,9 +152,11 @@ deterministically produce the same incident context.
   `httpx.Client` with the backend `base_url` (injectable, so tests use `httpx.MockTransport`),
   raises on HTTP errors, decodes JSON and hands it to the adapter; no parsing of its own.
 - **Runner (`runner.py`)** — `run_correlation(prometheus, jaeger, window_start, window_end,
-  query, metric_name, rules, trace_service)` is orchestration only: fetch samples (instant query
+  query, metric_name, rules, trace_service, services=None)` is orchestration only: fetch samples (instant query
   evaluated at `window_end`; the caller's PromQL must cover the window), fetch Jaeger spans for
-  `trace_service` over the window, then `detect_anomalies` → `build_incident_context`. Clients,
+  `trace_service` over the window, then `detect_anomalies` → `build_incident_context`. The
+  optional `services` names the services the query is meant to cover and yields
+  `metric_coverage` (omitted → none declared). Clients,
   query, metric name, rules and service are all explicit arguments — no defaults, no claimed
   production policy. Fetch errors propagate. No scheduling, polling, retries or alerting.
 - **Live validation (manual, one-off)** — against the Compose stack, real Prometheus and Jaeger
@@ -157,11 +165,11 @@ deterministically produce the same incident context.
 - **FastAPI note** — services pass `telemetry={"auto_configure": False}` to `FastAPI()`. Newer
   FastAPI releases auto-configure OTel when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and fail startup
   without the `fastapi[opentelemetry]` extra; the repo does its own explicit OTel setup.
-- **Handoff (`handoff.py`)** — the explicit boundary to the future investigator:
+- **Handoff (`handoff.py`)** — the explicit boundary to the investigator:
   `incident_context_to_payload` (pydantic JSON-mode dump → JSON-safe dict, datetimes as ISO
   strings) and `incident_context_from_payload` (validates, raises `pydantic.ValidationError` on
   malformed input). Pure and deterministic; no transport, no interpretation.
-- **Not yet built** — scheduled/repeated runs, and any real (LLM) investigator behind the contract.
+- **Not yet built** — scheduled/repeated runs.
 
 ## Future LLM investigation layer
 
@@ -178,8 +186,35 @@ anomalies/relationships in the input. `investigate(payload, investigator)` runs 
 satisfying the `Investigator` protocol and rejects evidence references absent from the input. The
 contract is provider-independent and contains no root-cause logic; tests use a plain test double.
 
-The actual LLM execution behind that protocol does not exist yet. When it's built, it should be swappable/mockable in tests
-independent of the deterministic layers above it.
+**LLM executor (built, `shared/investigator/llm.py` + `anthropic.py`).** `LLMInvestigator`
+implements the protocol as a single bounded inference call: `build_prompt` (pure) renders the
+`IncidentContext` with explicit anomaly/relationship indices, evidence-boundary rules and the
+caller → callee edge semantics (a callee can contribute to its callers' latency; never reversed); an
+injected `CompleteFn(prompt, json_schema) -> raw JSON text` does the transport; the reply is parsed
+with `Hypothesis.model_validate_json` and checked with `validate_evidence`. Invalid output raises —
+no repair, clamping, retries, or fallback hypothesis. No tools, agent loop, memory, or state.
+The provider is Anthropic's Messages API with native JSON-schema output, called via `httpx` (an
+existing dependency — no SDK added). Configuration: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
+(required), `ANTHROPIC_BASE_URL` (optional). Swapping providers means writing another `CompleteFn`.
+Tests use a fake `CompleteFn` and `httpx.MockTransport`; no live calls. One-off live evaluation results are recorded in
+[investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark). Manual use:
+`anthropic_investigator_from_env()` returns an `Investigator` to pass to `investigate(payload, ...)`.
+
+The request (`POST /v1/messages`, `x-api-key` + `anthropic-version: 2023-06-01`, `max_tokens`,
+`output_config.format` of type `json_schema`, no beta header) and response handling (text blocks;
+`refusal`/`max_tokens` stop reasons rejected) were checked against the current Anthropic structured
+outputs docs; the schema sent drops keywords the API does not accept, which `Hypothesis` enforces
+locally. The Anthropic transport has not been run live. `MAX_TOKENS` is 1024: a model that spends output tokens on
+thinking could hit `max_tokens`, which surfaces as `ProviderError` rather than a partial answer.
+
+**End-to-end entry point (`shared/pipeline.py`).** `correlate_and_investigate(...)` takes the
+`run_correlation` inputs plus an `Investigator`, runs `run_correlation`, converts the context with
+`incident_context_to_payload`, and returns `investigate(payload, investigator)`. Orchestration
+only; errors from either layer propagate. Tested with a fake `Investigator`.
+
+**Provider status.** The Anthropic transport exists only because the first implementation task asked for a
+concrete provider when none had been chosen; it is not an architectural requirement. The
+provider-independent boundary is `CompleteFn(prompt, json_schema) -> raw JSON text`. Live validation to date is a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. OpenAI is not a dependency, module or configuration of this repo, and the Anthropic transport has not been run live.
 
 ## Major data flows
 
@@ -188,7 +223,7 @@ independent of the deterministic layers above it.
 2. **Telemetry flow**: each service → OpenTelemetry → Prometheus/trace backend → Grafana (for
    humans) and → correlation engine (for the system itself).
 3. **Incident flow**: anomaly detected → correlation engine reads telemetry → incident context
-   built → (future) LLM investigator reads incident context → hypothesis produced → (future)
+   built → LLM investigator reads incident context → hypothesis produced → (future)
    surfaced on a dashboard.
 
 ## Non-goals and complexity constraints

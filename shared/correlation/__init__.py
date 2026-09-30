@@ -18,6 +18,7 @@ No narrative text and no LLM call happens anywhere in this module.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +79,20 @@ class Anomaly(BaseModel):
     timestamp: datetime
 
 
+class MetricCoverage(BaseModel):
+    """Whether one service was actually observed by the anomaly metric in the window.
+
+    "observed": the metric query returned usable telemetry for the service. "unobserved": it
+    did not, i.e. the service is outside the coverage represented here. This is separate from
+    anomalies: an observed service with no anomaly was measured and stayed under the threshold;
+    an unobserved service says nothing about its health.
+    """
+
+    metric_name: str
+    service: str
+    status: Literal["observed", "unobserved"]
+
+
 class IncidentContext(BaseModel):
     """Bounded, structured record of what was observed during an incident window.
 
@@ -94,6 +109,8 @@ class IncidentContext(BaseModel):
     window_start: datetime
     window_end: datetime
     anomalies: list[Anomaly]
+    # Empty means no coverage was declared (the caller named no services), not "all observed".
+    metric_coverage: list[MetricCoverage] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +155,25 @@ def detect_anomalies(samples: list[MetricSample], rules: list[AnomalyRule]) -> l
     return anomalies
 
 
+def compute_metric_coverage(
+    samples: list[MetricSample], services: list[str], metric_name: str
+) -> list[MetricCoverage]:
+    """Mark each named service observed if `samples` hold a sample of `metric_name` for it.
+
+    Coverage comes from the samples, never from anomalies: a service that was measured below
+    the threshold is observed. Output is sorted by service for determinism.
+    """
+    seen = {s.service for s in samples if s.metric_name == metric_name}
+    return [
+        MetricCoverage(
+            metric_name=metric_name,
+            service=service,
+            status="observed" if service in seen else "unobserved",
+        )
+        for service in sorted(set(services))
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Trace relationship correlation
 # ---------------------------------------------------------------------------
@@ -177,6 +213,7 @@ def build_incident_context(
     spans: list[SpanRecord],
     window_start: datetime,
     window_end: datetime,
+    metric_coverage: list[MetricCoverage] | None = None,
 ) -> IncidentContext:
     """Combine anomalies and trace-derived relationships into one structured incident context.
 
@@ -203,4 +240,5 @@ def build_incident_context(
         window_start=window_start,
         window_end=window_end,
         anomalies=sorted(anomalies, key=lambda a: (a.service, a.metric_name, a.timestamp)),
+        metric_coverage=list(metric_coverage or []),
     )

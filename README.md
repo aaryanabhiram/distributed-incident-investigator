@@ -46,7 +46,7 @@ produced.**
       structured incident context
                │
                ▼
-        LLM investigator (future)
+        LLM investigator
                │
                ▼
    root-cause hypothesis + evidence
@@ -96,10 +96,14 @@ instant-query and Jaeger trace JSON into the core's typed inputs, and
 window: fetch → detect → correlate → `IncidentContext`, with the query, rules and clients passed
 in explicitly. Unit tests use mocked HTTP; it has also been run once by hand against the live
 Compose stack (real Prometheus and Jaeger payloads parsed). `shared/correlation/handoff.py`
-converts an `IncidentContext` to/from a JSON-safe dict — the boundary the future investigator
-will consume. `shared/investigator/` defines the investigator contract only (`InvestigatorInput`
-→ `Hypothesis` with root cause, confidence and evidence references); no LLM or provider is wired
-yet.
+converts an `IncidentContext` to/from a JSON-safe dict — the boundary the investigator
+consumes. `shared/investigator/` defines the investigator contract (`InvestigatorInput` →
+`Hypothesis` with root cause, confidence and evidence references) and one LLM-backed executor
+(`llm.py`, with an Anthropic Messages API transport in `anthropic.py`): a single bounded call whose
+output is validated, never repaired. It needs `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`; tests use a
+mock and make no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
+provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. OpenAI is not a dependency, module or configuration of this repo, and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
+orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`.
 
 ## Getting started
 
@@ -222,7 +226,7 @@ rather than swallowed.
 5. **Deterministic correlation** (in progress: core, payload adapters, HTTP fetchers and
    window runner done; validated once against the live stack) — analyze telemetry to identify affected services and
    relationships during an incident; build the structured incident context.
-6. **LLM investigator** (contract done; no provider wired) — LLM reasons over the incident context to produce a root-cause
+6. **LLM investigator** (contract, first Anthropic-backed executor and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; Anthropic transport not run live; not scheduled) — LLM reasons over the incident context to produce a root-cause
    hypothesis with cited evidence.
 7. **Dashboard** — visualize services, incidents, and hypotheses.
 

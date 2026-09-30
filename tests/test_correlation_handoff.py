@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from shared.correlation import Anomaly, IncidentContext, ServiceRelationship
+from shared.correlation import Anomaly, IncidentContext, MetricCoverage, ServiceRelationship
 from shared.correlation.handoff import incident_context_from_payload, incident_context_to_payload
 
 START = datetime(2023, 11, 14, 22, 0, 0, tzinfo=timezone.utc)
@@ -75,3 +75,28 @@ def test_wrong_type_rejected():
     payload["affected_services"] = "payment"
     with pytest.raises(ValidationError):
         incident_context_from_payload(payload)
+
+
+def test_coverage_survives_payload_round_trip():
+    context = _context().model_copy(
+        update={
+            "metric_coverage": [
+                MetricCoverage(metric_name="error_rate", service="order", status="unobserved"),
+                MetricCoverage(metric_name="error_rate", service="payment", status="observed"),
+            ]
+        }
+    )
+    payload = incident_context_to_payload(context)
+    assert payload["metric_coverage"] == [
+        {"metric_name": "error_rate", "service": "order", "status": "unobserved"},
+        {"metric_name": "error_rate", "service": "payment", "status": "observed"},
+    ]
+    json.dumps(payload)
+    assert incident_context_from_payload(payload) == context
+    assert payload == incident_context_to_payload(context)
+
+
+def test_full_coverage_payload_without_the_field_still_loads():
+    payload = incident_context_to_payload(_context())
+    payload.pop("metric_coverage")
+    assert incident_context_from_payload(payload).metric_coverage == []
