@@ -177,6 +177,16 @@ def test_run_rejects_naive_window_before_querying_backends(which):
         )
 
 
+def test_run_rejects_reversed_window_before_querying_backends():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no backend may be queried for a reversed window")
+
+    prom, jaeger = _clients(handler, handler)
+
+    with pytest.raises(ValueError, match="must not be after"):
+        run_correlation(prom, jaeger, END, START, "q", "error_rate", RULES, "gateway")
+
+
 def test_run_reports_undefined_and_unobserved_callees_differently():
     def prom(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

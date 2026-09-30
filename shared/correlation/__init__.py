@@ -215,16 +215,17 @@ def extract_relationships(spans: list[SpanRecord]) -> list[ServiceRelationship]:
     the span itself — that is what a real cross-service HTTP call looks like under OpenTelemetry
     auto-instrumentation (client span in the caller, server span in the callee, linked by
     trace context propagation). Spans within the same service, or with no parent, never
-    produce an edge. Duplicate edges collapse to one; the result is sorted for deterministic
+    produce an edge. Parents are matched on (trace_id, span_id), so equal span ids in different
+    traces never link. Duplicate edges collapse to one; the result is sorted for deterministic
     output ordering regardless of input order.
     """
-    spans_by_id = {span.span_id: span for span in spans}
+    spans_by_id = {(span.trace_id, span.span_id): span for span in spans}
 
     edges: set[tuple[str, str]] = set()
     for span in spans:
         if span.parent_span_id is None:
             continue
-        parent = spans_by_id.get(span.parent_span_id)
+        parent = spans_by_id.get((span.trace_id, span.parent_span_id))
         if parent is None or parent.service == span.service:
             continue
         edges.add((parent.service, span.service))

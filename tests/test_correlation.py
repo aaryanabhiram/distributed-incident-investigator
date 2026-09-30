@@ -137,6 +137,15 @@ def test_extract_relationships_ignores_unrelated_traces_without_false_edges() ->
     assert all(r.caller != "payment" and r.callee != "payment" for r in relationships)
 
 
+def test_extract_relationships_does_not_link_parent_across_traces() -> None:
+    spans = [
+        _span("s1", "gateway", None, trace_id="trace-1"),
+        _span("s2", "order", "s1", trace_id="trace-2"),  # same span id, different trace
+    ]
+
+    assert extract_relationships(spans) == []
+
+
 def test_extract_relationships_deduplicates_and_orders_deterministically() -> None:
     spans = [
         _span("s1", "gateway", None, trace_id="trace-1"),

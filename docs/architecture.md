@@ -132,8 +132,8 @@ deterministically produce the same incident context.
 - **Core (`__init__.py`)** — pure, network-free, typed. `detect_anomalies` flags samples where
   `value > rule.threshold`; the threshold is an explicit injectable `AnomalyRule`, a fixture
   policy rather than a claimed production alerting threshold. `extract_relationships` derives
-  caller → callee edges from OpenTelemetry parent/child spans that cross a service boundary
-  (never from service-name matching). `build_incident_context` sets `affected_services` to only
+  caller → callee edges from OpenTelemetry parent/child spans, in the same trace, that cross a
+  service boundary (never from service-name matching). `build_incident_context` sets `affected_services` to only
   the services that directly produced anomalies, and keeps only relationships touching one of
   them — exactly one hop, no transitive propagation. `IncidentContext` carries no log evidence
   yet: there is no programmatic log store to source it from. `IncidentContext.metric_coverage`
@@ -165,7 +165,7 @@ deterministically produce the same incident context.
   `fetch_prometheus_vector` does one request and returns both the samples and the NaN services.
   Datetime contract: every datetime that becomes a query timestamp (`at`, `start`, `end`, and
   `run_correlation`'s window) must be timezone-aware; naive values raise `ValueError` before any
-  request, because `datetime.timestamp()` would otherwise read them as host-local time. The core
+  request (as does `window_start` after `window_end` in `run_correlation`), because `datetime.timestamp()` would otherwise read them as host-local time. The core
   models themselves do not enforce this (they never convert to epoch).
 - **Runner (`runner.py`)** — `run_correlation(prometheus, jaeger, window_start, window_end,
   query, metric_name, rules, trace_service, services=None)` is orchestration only: fetch samples (instant query

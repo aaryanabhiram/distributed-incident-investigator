@@ -50,10 +50,14 @@ def run_correlation(
     coverage is declared. Anomaly and relationship semantics are unaffected.
 
     `window_start` and `window_end` must be timezone-aware; naive datetimes raise `ValueError`
-    before any backend is queried.
+    before any backend is queried, as does `window_start` later than `window_end`.
     """
     require_aware("window_start", window_start)
     require_aware("window_end", window_end)
+    if window_start > window_end:
+        raise ValueError(
+            f"window_start {window_start!r} must not be after window_end {window_end!r}"
+        )
     samples, undefined_services = fetch_prometheus_vector(
         prometheus, query, metric_name, at=window_end
     )
