@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from shared.fault_injection import FaultInjector, install_fault_routes
 from shared.telemetry import setup_telemetry
 
-app = FastAPI(title="payment")
+app = FastAPI(title="payment", telemetry={"auto_configure": False})
 setup_telemetry(app, "payment")
 
 fault_injector = FaultInjector("payment")

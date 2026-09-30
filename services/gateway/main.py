@@ -9,7 +9,7 @@ from shared.telemetry import setup_telemetry
 
 ORDER_SERVICE_URL = os.environ.get("ORDER_SERVICE_URL", "http://127.0.0.1:8001")
 
-app = FastAPI(title="gateway")
+app = FastAPI(title="gateway", telemetry={"auto_configure": False})
 setup_telemetry(app, "gateway")
 
 logger = logging.getLogger(__name__)

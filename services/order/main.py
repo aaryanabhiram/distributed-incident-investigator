@@ -10,7 +10,7 @@ from shared.telemetry import setup_telemetry
 
 PAYMENT_SERVICE_URL = os.environ.get("PAYMENT_SERVICE_URL", "http://127.0.0.1:8002")
 
-app = FastAPI(title="order")
+app = FastAPI(title="order", telemetry={"auto_configure": False})
 setup_telemetry(app, "order")
 
 logger = logging.getLogger(__name__)
