@@ -91,8 +91,15 @@ demand (`shared/fault_injection/`); injected faults show up in telemetry like re
 threshold anomaly detection, service relationships derived from cross-service parent/child
 spans, and a bounded `IncidentContext`. `shared/correlation/adapters.py` converts Prometheus
 instant-query and Jaeger trace JSON into the core's typed inputs, and
-`shared/correlation/fetch.py` fetches that JSON over HTTP (`httpx`). A window-level pipeline
-and the LLM layer have not been built yet.
+`shared/correlation/fetch.py` fetches that JSON over HTTP (`httpx`).
+`shared/correlation/runner.py` (`run_correlation`) ties these together for a supplied time
+window: fetch → detect → correlate → `IncidentContext`, with the query, rules and clients passed
+in explicitly. Unit tests use mocked HTTP; it has also been run once by hand against the live
+Compose stack (real Prometheus and Jaeger payloads parsed). `shared/correlation/handoff.py`
+converts an `IncidentContext` to/from a JSON-safe dict — the boundary the future investigator
+will consume. `shared/investigator/` defines the investigator contract only (`InvestigatorInput`
+→ `Hypothesis` with root cause, confidence and evidence references); no LLM or provider is wired
+yet.
 
 ## Getting started
 
@@ -212,10 +219,10 @@ rather than swallowed.
    logs); Prometheus + Grafana + Jaeger wired up locally.
 4. **Fault injection** (done) — a controlled, explicit boundary for injecting latency/errors
    into a service.
-5. **Deterministic correlation** (in progress: core, payload adapters and HTTP fetchers
-   done; window-level pipeline remaining) — analyze telemetry to identify affected services and
+5. **Deterministic correlation** (in progress: core, payload adapters, HTTP fetchers and
+   window runner done; validated once against the live stack) — analyze telemetry to identify affected services and
    relationships during an incident; build the structured incident context.
-6. **LLM investigator** — LLM reasons over the incident context to produce a root-cause
+6. **LLM investigator** (contract done; no provider wired) — LLM reasons over the incident context to produce a root-cause
    hypothesis with cited evidence.
 7. **Dashboard** — visualize services, incidents, and hypotheses.
 

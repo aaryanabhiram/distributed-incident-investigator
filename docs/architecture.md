@@ -145,7 +145,23 @@ deterministically produce the same incident context.
   `fetch_jaeger_spans` (`/api/traces`, window as epoch microseconds). Each takes an
   `httpx.Client` with the backend `base_url` (injectable, so tests use `httpx.MockTransport`),
   raises on HTTP errors, decodes JSON and hands it to the adapter; no parsing of its own.
-- **Not yet built** — a window-level pipeline function tying fetchers, rules and the core together.
+- **Runner (`runner.py`)** — `run_correlation(prometheus, jaeger, window_start, window_end,
+  query, metric_name, rules, trace_service)` is orchestration only: fetch samples (instant query
+  evaluated at `window_end`; the caller's PromQL must cover the window), fetch Jaeger spans for
+  `trace_service` over the window, then `detect_anomalies` → `build_incident_context`. Clients,
+  query, metric name, rules and service are all explicit arguments — no defaults, no claimed
+  production policy. Fetch errors propagate. No scheduling, polling, retries or alerting.
+- **Live validation (manual, one-off)** — against the Compose stack, real Prometheus and Jaeger
+  payloads parsed and `run_correlation` produced the expected `gateway → order → payment`
+  relationships. Automated tests still use `httpx.MockTransport`.
+- **FastAPI note** — services pass `telemetry={"auto_configure": False}` to `FastAPI()`. Newer
+  FastAPI releases auto-configure OTel when `OTEL_EXPORTER_OTLP_ENDPOINT` is set and fail startup
+  without the `fastapi[opentelemetry]` extra; the repo does its own explicit OTel setup.
+- **Handoff (`handoff.py`)** — the explicit boundary to the future investigator:
+  `incident_context_to_payload` (pydantic JSON-mode dump → JSON-safe dict, datetimes as ISO
+  strings) and `incident_context_from_payload` (validates, raises `pydantic.ValidationError` on
+  malformed input). Pure and deterministic; no transport, no interpretation.
+- **Not yet built** — scheduled/repeated runs, and any real (LLM) investigator behind the contract.
 
 ## Future LLM investigation layer
 
@@ -155,7 +171,14 @@ of evidence in the incident context support it. The LLM's input is bounded by co
 (it's a fixed-shape record, not an open-ended log dump), which keeps the reasoning step cheap,
 reviewable, and decoupled from how large the system's telemetry volume actually is.
 
-This layer does not exist yet. When it's built, it should be swappable/mockable in tests
+**Contract (built, `shared/investigator/`).** `InvestigatorInput` wraps one `IncidentContext`
+(built from a handoff payload). The result is a `Hypothesis`: `root_cause`, `confidence` (0–1)
+and `supporting_evidence`, a non-empty list of `EvidenceRef(kind, index)` pointing at
+anomalies/relationships in the input. `investigate(payload, investigator)` runs any callable
+satisfying the `Investigator` protocol and rejects evidence references absent from the input. The
+contract is provider-independent and contains no root-cause logic; tests use a plain test double.
+
+The actual LLM execution behind that protocol does not exist yet. When it's built, it should be swappable/mockable in tests
 independent of the deterministic layers above it.
 
 ## Major data flows
