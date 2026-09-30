@@ -59,7 +59,9 @@ def test_injected_latency_delays_charge_response() -> None:
     elapsed = time.monotonic() - start
 
     assert response.status_code == 200
-    assert elapsed >= 0.3
+    # Small tolerance: on Windows time.monotonic() ticks at ~15.6 ms, so a 300 ms sleep can
+    # measure slightly under 0.3 s. 0.28 s still proves the latency was really applied.
+    assert elapsed >= 0.28
 
 
 def test_injected_error_fails_charge_request() -> None:
