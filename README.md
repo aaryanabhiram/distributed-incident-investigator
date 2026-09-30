@@ -182,7 +182,10 @@ Trace/metric export endpoints are read from environment variables at startup
 docker compose up --build
 ```
 
-Then exercise the checkout path (see above) and inspect:
+Then exercise the checkout path (see above) and inspect. The Compose file binds all
+published ports to `127.0.0.1` only, since the fault-injection endpoint and Grafana's anonymous
+admin are unauthenticated. A stack started before this change keeps its old bindings until it is
+recreated (`docker compose up -d`):
 
 - **Jaeger UI** — [http://localhost:16686](http://localhost:16686) — pick service `gateway`,
   operation `POST /checkout`, to see the full cross-service trace.

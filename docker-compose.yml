@@ -4,15 +4,15 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686" # Jaeger UI
-      - "4317:4317" # OTLP gRPC receiver
+      - "127.0.0.1:16686:16686" # Jaeger UI
+      - "127.0.0.1:4317:4317" # OTLP gRPC receiver
 
   prometheus:
     image: prom/prometheus:v2.55.1
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -23,7 +23,7 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
       - jaeger
@@ -35,7 +35,7 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     ports:
-      - "8002:8000"
+      - "127.0.0.1:8002:8000"
     depends_on:
       - jaeger
     healthcheck:
@@ -52,7 +52,7 @@ services:
       PAYMENT_SERVICE_URL: "http://payment:8000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     depends_on:
       payment:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
       ORDER_SERVICE_URL: "http://order:8000"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       order:
         condition: service_healthy
