@@ -5,6 +5,10 @@ Each function takes an `httpx.Client` whose `base_url` points at the backend (lo
 inject an `httpx.MockTransport`. All parsing lives in `adapters.py`; this module only does the
 request, checks the HTTP status and decodes the body. HTTP failures raise
 `httpx.HTTPStatusError`; a body that is not JSON raises `ValueError`.
+
+Datetime contract: every datetime turned into a query timestamp must be timezone-aware. A naive
+datetime would be read as the host's local time by `datetime.timestamp()`, silently shifting
+the query window, so `require_aware` rejects it with `ValueError` before any request is made.
 """
 
 from __future__ import annotations
@@ -15,6 +19,12 @@ import httpx
 
 from shared.correlation import MetricSample, SpanRecord
 from shared.correlation.adapters import parse_jaeger_traces, parse_prometheus_vector
+
+
+def require_aware(name: str, value: datetime) -> None:
+    """Raise `ValueError` if `value` is a naive datetime (no UTC offset)."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{name} must be timezone-aware, got naive datetime {value!r}")
 
 
 def _get_json(client: httpx.Client, path: str, params: dict[str, str | int]) -> dict:
@@ -32,6 +42,7 @@ def fetch_prometheus_samples(
     """
     params: dict[str, str | int] = {"query": query}
     if at is not None:
+        require_aware("at", at)
         params["time"] = at.timestamp()
     return parse_prometheus_vector(_get_json(client, "/api/v1/query", params), metric_name)
 
@@ -48,6 +59,8 @@ def fetch_jaeger_spans(
     Jaeger takes `start`/`end` as epoch microseconds. Every span of each matching trace is
     returned, including spans from other services, which is what yields cross-service edges.
     """
+    require_aware("start", start)
+    require_aware("end", end)
     params: dict[str, str | int] = {
         "service": service,
         "start": int(start.timestamp() * 1_000_000),

@@ -153,3 +153,25 @@ def test_run_marks_services_outside_the_query_unobserved():
         MetricCoverage(metric_name="error_rate", service="order", status="unobserved"),
         MetricCoverage(metric_name="error_rate", service="payment", status="observed"),
     ]
+
+
+@pytest.mark.parametrize("which", ["window_start", "window_end"])
+def test_run_rejects_naive_window_before_querying_backends(which):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no backend may be queried for a naive window")
+
+    prom, jaeger = _clients(handler, handler)
+    window = {"window_start": START, "window_end": END}
+    window[which] = datetime(2023, 11, 14, 22, 0, 0)
+
+    with pytest.raises(ValueError, match=which):
+        run_correlation(
+            prom,
+            jaeger,
+            window["window_start"],
+            window["window_end"],
+            "rate(errors[5m])",
+            "error_rate",
+            RULES,
+            "gateway",
+        )

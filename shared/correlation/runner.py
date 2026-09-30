@@ -19,7 +19,11 @@ from shared.correlation import (
     compute_metric_coverage,
     detect_anomalies,
 )
-from shared.correlation.fetch import fetch_jaeger_spans, fetch_prometheus_samples
+from shared.correlation.fetch import (
+    fetch_jaeger_spans,
+    fetch_prometheus_samples,
+    require_aware,
+)
 
 
 def run_correlation(
@@ -43,7 +47,12 @@ def run_correlation(
     `services` optionally names the services the metric query is meant to cover; each is marked
     observed or unobserved in `metric_coverage` from whether the query returned a sample for it.
     Omitted, no coverage is declared. Anomaly and relationship semantics are unaffected.
+
+    `window_start` and `window_end` must be timezone-aware; naive datetimes raise `ValueError`
+    before any backend is queried.
     """
+    require_aware("window_start", window_start)
+    require_aware("window_end", window_end)
     samples = fetch_prometheus_samples(prometheus, query, metric_name, at=window_end)
     spans = fetch_jaeger_spans(jaeger, trace_service, window_start, window_end)
     anomalies = detect_anomalies(samples, rules)

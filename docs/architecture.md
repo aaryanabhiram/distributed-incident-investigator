@@ -151,6 +151,10 @@ deterministically produce the same incident context.
   `fetch_jaeger_spans` (`/api/traces`, window as epoch microseconds). Each takes an
   `httpx.Client` with the backend `base_url` (injectable, so tests use `httpx.MockTransport`),
   raises on HTTP errors, decodes JSON and hands it to the adapter; no parsing of its own.
+  Datetime contract: every datetime that becomes a query timestamp (`at`, `start`, `end`, and
+  `run_correlation`'s window) must be timezone-aware; naive values raise `ValueError` before any
+  request, because `datetime.timestamp()` would otherwise read them as host-local time. The core
+  models themselves do not enforce this (they never convert to epoch).
 - **Runner (`runner.py`)** — `run_correlation(prometheus, jaeger, window_start, window_end,
   query, metric_name, rules, trace_service, services=None)` is orchestration only: fetch samples (instant query
   evaluated at `window_end`; the caller's PromQL must cover the window), fetch Jaeger spans for

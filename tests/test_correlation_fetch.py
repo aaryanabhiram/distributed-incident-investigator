@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -117,3 +117,46 @@ def test_fetch_surfaces_adapter_rejection_of_failed_prometheus_query():
     client = _client(lambda request: httpx.Response(200, json={"status": "error"}))
     with pytest.raises(ValueError):
         fetch_prometheus_samples(client, "bad(", "x")
+
+
+NAIVE = datetime(2023, 11, 14, 22, 13, 20)
+UTC_INSTANT = datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc)
+IST_INSTANT = datetime(2023, 11, 15, 3, 43, 20, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+def _failing_client() -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no request may be made for a naive datetime")
+
+    return _client(handler)
+
+
+def test_fetch_prometheus_rejects_naive_at_before_any_request():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        fetch_prometheus_samples(_failing_client(), "up", "up", at=NAIVE)
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"start": NAIVE, "end": UTC_INSTANT}, {"start": UTC_INSTANT, "end": NAIVE}]
+)
+def test_fetch_jaeger_rejects_naive_start_or_end_before_any_request(kwargs):
+    with pytest.raises(ValueError, match="timezone-aware"):
+        fetch_jaeger_spans(_failing_client(), "payment", **kwargs)
+
+
+def test_aware_datetimes_yield_host_independent_epoch_timestamps():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200, json={"status": "success", "data": {"resultType": "vector", "result": []}}
+        )
+
+    client = _client(handler)
+    fetch_prometheus_samples(client, "up", "up", at=UTC_INSTANT)
+    fetch_prometheus_samples(client, "up", "up", at=IST_INSTANT)
+
+    # Same instant in different offsets -> identical epoch, and equal to the fixed UTC epoch
+    # (not derived from the host timezone).
+    assert [float(r.url.params["time"]) for r in seen] == [1_700_000_000.0, 1_700_000_000.0]
