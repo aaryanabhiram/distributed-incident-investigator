@@ -87,7 +87,7 @@ together with a local observability stack (Jaeger, Prometheus, Grafana) under Do
 **Fault injection.** The `payment` service can be made to add latency or return errors on
 demand (`shared/fault_injection/`); injected faults show up in telemetry like real problems.
 
-**Correlation (in progress).** `shared/correlation/` is a network-free deterministic core:
+**Correlation (implemented; thresholds are fixture/demo policy, not production alerting policy; log evidence is not implemented).** `shared/correlation/` is a network-free deterministic core:
 threshold anomaly detection, service relationships derived from cross-service parent/child
 spans, and a bounded `IncidentContext`. `shared/correlation/adapters.py` converts Prometheus
 instant-query and Jaeger trace JSON into the core's typed inputs, and
@@ -234,11 +234,12 @@ rather than swallowed.
    logs); Prometheus + Grafana + Jaeger wired up locally.
 4. **Fault injection** (done) — a controlled, explicit boundary for injecting latency/errors
    into a service.
-5. **Deterministic correlation** (in progress: core, payload adapters, HTTP fetchers and
-   window runner done; validated once against the live stack) — analyze telemetry to identify affected services and
+5. **Deterministic correlation** (done: core, payload adapters, HTTP fetchers, window runner and
+   coverage semantics; validated once against the live stack; thresholds are fixture/demo policy and
+   log evidence is not implemented) — analyze telemetry to identify affected services and
    relationships during an incident; build the structured incident context.
-6. **LLM investigator** (contract, first Anthropic-backed executor and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; Anthropic transport not run live; not scheduled) — LLM reasons over the incident context to produce a root-cause
+6. **LLM investigator** (contract, first Anthropic-backed executor and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; Anthropic transport not run live; `undetermined` behavior still needs live evaluation; not scheduled) — LLM reasons over the incident context to produce a root-cause
    hypothesis with cited evidence.
-7. **Dashboard** — visualize services, incidents, and hypotheses.
+7. **Dashboard** (not built) — visualize services, incidents, and hypotheses.
 
 Each milestone is implemented and reviewed on its own; later milestones are not started early.

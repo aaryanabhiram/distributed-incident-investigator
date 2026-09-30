@@ -197,7 +197,7 @@ deterministically produce the same incident context.
   malformed input). Pure and deterministic; no transport, no interpretation.
 - **Not yet built** — scheduled/repeated runs.
 
-## Future LLM investigation layer
+## LLM investigation layer
 
 Reads the incident context produced above — not raw telemetry, and not live service state —
 and produces a structured hypothesis: likely root cause, confidence, and which specific pieces
