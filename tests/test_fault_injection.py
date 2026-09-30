@@ -22,7 +22,9 @@ def test_latency_fault_sleeps_for_configured_duration() -> None:
     injector.maybe_apply()
     elapsed = time.monotonic() - start
 
-    assert elapsed >= 0.2
+    # Small tolerance: on Windows time.monotonic() ticks at ~15.6 ms, so a 200 ms sleep can
+    # measure slightly under 0.2 s. 0.18 s still proves the latency was really applied.
+    assert elapsed >= 0.18
 
 
 def test_error_fault_raises_http_exception() -> None:
