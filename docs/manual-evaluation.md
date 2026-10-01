@@ -13,11 +13,11 @@ existing `CompleteFn(Prompt, json_schema) -> raw JSON text` seam, to the unchang
 
 ## Status
 
-**Pending.** The `undetermined` hypothesis status and indexed `unobserved_dependency` evidence
-(Milestone 5) have only been exercised with fake `CompleteFn`s. Whether a real model uses them
-sensibly has not been run. The results in the history file predate this schema and prompt and
-are not comparable to it as-is. The one-off script below has only been exercised against mocks;
-neither it nor the shipped Anthropic transport has made a live request.
+**Run once (Evaluation 7).** The `undetermined` hypothesis status and indexed
+`unobserved_dependency` evidence (Milestone 5) were exercised live with this script on
+`gpt-5.6-luna`; see Evaluation 7 in the history file. Evaluations 1–6 predate this schema and
+prompt and are not comparable to it as-is. One run per case is an anecdote. The shipped
+Anthropic transport has not made a live request.
 
 ## Query provenance
 
@@ -307,10 +307,17 @@ this was written):
 
 ## What to look for (observations, not pass/fail)
 
-- **full** (payment observed): does it stay `identified`, with correct caller → callee direction?
+- **full** (payment observed): is the caller → callee direction correct, and is the status
+  (`identified` or `undetermined`) supported by what the context contains? Elevated latency on
+  every service in a chain does not by itself establish an origin, so `undetermined` can be
+  correct (Evaluation 7).
 - **partial** (payment unobserved, so `unobserved_dependencies` lists order → payment): does it
-  return `undetermined`, cite the `unobserved_dependency`, and avoid presenting order or payment
-  as the established origin? Is confidence lower than the `full` run?
+  return `undetermined`, cite the `unobserved_dependency`, treat payment as unknown rather than
+  healthy, and avoid presenting order or payment as the established origin?
+- **confidence**: record it, but note it is the model's confidence in its *stated conclusion*
+  (including an `undetermined` one), not in an origin, and nothing ties it to telemetry
+  completeness. Equal values across cases are an observation, not a failure; lower confidence in
+  `partial` is not an expected outcome of the current schema.
 - Any schema or evidence-validation exception is itself a result worth recording. A preflight
   abort is not a result: fix the setup and rerun.
 

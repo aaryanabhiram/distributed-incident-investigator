@@ -135,3 +135,65 @@ Model output and our grounding assessment are kept separate in each entry.
 - Representing coverage explicitly (Evaluation 6) changed the answer: the unobserved service was
   acknowledged and confidence dropped 0.78 → 0.58, but the model still selected a single origin.
 - The evaluated incidents were single-fault chains from a single stack; none is a benchmark.
+
+## Evaluation 7 — full and partial telemetry, `undetermined` status, gpt-5.6-luna
+
+First live run of the Milestone 5 schema and prompt (`status`, `unobserved_dependency` evidence).
+Recorded 2026-10-01. Run with the one-off OpenAI script from
+[manual-evaluation.md](manual-evaluation.md) (outside the repository), model `gpt-5.6-luna`
+(present in the account's `/v1/models` response). Scenario: payment latency fault injected,
+checkout traffic sent, both cases built from one time window and run through the unchanged
+`LLMInvestigator`. Both preflights passed; both cases produced model responses. The fault was
+cleared afterwards. Anomaly values were not printed and are not recorded here.
+
+### Observed results
+
+| | full (payment observed) | partial (payment unobserved) |
+|---|---|---|
+| Relationships | gateway → order, order → payment | gateway → order, order → payment |
+| `unobserved_dependencies` | none | order → payment, `http_server_duration_milliseconds`, `unobserved` |
+| `status` | `undetermined` | `undetermined` |
+| `confidence` | 0.95 | 0.95 |
+| Evidence | anomaly[0], [1], [2]; relationship[0], [1] | anomaly[0], [1]; relationship[1]; unobserved_dependency[0] |
+
+- **full root_cause:** "Gateway, order, and payment all show elevated server duration, with
+  gateway invoking order and order invoking payment. The evidence does not distinguish whether the
+  latency originates in payment, order, gateway, or a shared factor; no service can be established
+  as the root cause."
+- **partial root_cause:** "Gateway and order have elevated HTTP server duration, and order invokes
+  payment whose HTTP server duration is unobserved. The evidence cannot distinguish whether the
+  latency originates in gateway, order, or the unknown payment dependency."
+- Both replies parsed into `Hypothesis` and passed `validate_evidence`; the provider accepted the
+  schema sent by the script (resolving that assumption for this model).
+
+### Assessment (interpretation)
+
+- **Full:** `undetermined` is defensible. The context holds per-service mean-latency anomalies,
+  caller → callee edges and coverage, with no span durations, self-time or error data, so a
+  payment origin, an order or gateway origin and a shared factor are all consistent with it. The
+  earlier `identified` answers (Evaluations 1–4) were produced under a prompt without this option.
+  Direction was read correctly. No origin was named.
+- **Partial:** treated missing payment telemetry as unknown, not healthy; cited the
+  `unobserved_dependency`; claimed no unique origin. Minor omission: it did not cite
+  relationship[0] (gateway → order) although it discussed latency reaching gateway. Its indices
+  are valid and relevant.
+- **Confidence:** model-reported only. `Hypothesis.confidence` is bounded to 0–1; no validator or
+  prompt rule ties it to telemetry completeness, and the schema defines it as confidence in the
+  *stated conclusion, whichever status*. 0.95 on "this cannot be determined" is coherent under that
+  definition. Identical values are not a verified calibration defect, and one run per case cannot
+  show whether the model would vary it. The "lower confidence than full" check in the manual
+  evaluation was written as if confidence meant confidence in an origin; it has been reworded.
+- **No code defect was identified.** No change was made to code, prompt or schema.
+- **Not established:** general diagnostic accuracy, calibrated confidence, production readiness,
+  or any advantage over a deterministic baseline. Each case is a single run on a single-fault
+  chain from one stack.
+
+## Planned next experiment (future work, not a result)
+
+Nothing below has been built or run. Plan: implement a transparent deterministic investigator
+behind the existing `Investigator` protocol and compare it with `LLMInvestigator` on *identical*
+`IncidentContext` inputs, over controlled fault scenarios whose ground-truth origin is known.
+Measures to record per investigator: correct identification, false attribution (naming a wrong
+origin), abstention (`undetermined`) and whether it was appropriate, evidence-reference validity
+and relevance, runtime, and API cost (deterministic: none). Any claim about relative performance
+waits for that comparison; this entry's single runs do not support one.

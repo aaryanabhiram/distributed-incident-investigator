@@ -233,8 +233,7 @@ The provider is Anthropic's Messages API with native JSON-schema output, called 
 existing dependency — no SDK added). Configuration: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 (required), `ANTHROPIC_BASE_URL` (optional). Swapping providers means writing another `CompleteFn`.
 Tests use a fake `CompleteFn` and `httpx.MockTransport`; no live calls. One-off live evaluation results are recorded in
-[investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark); the procedure for the pending live re-run of the ambiguous case
-with the `undetermined` status is [manual-evaluation.md](manual-evaluation.md). Manual use:
+[investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark); the procedure for the live evaluation of the `undetermined` status (run once per case, Evaluation 7) is [manual-evaluation.md](manual-evaluation.md). Manual use:
 `anthropic_investigator_from_env()` returns an `Investigator` to pass to `investigate(payload, ...)`.
 
 The request (`POST /v1/messages`, `x-api-key` + `anthropic-version: 2023-06-01`, `max_tokens`,

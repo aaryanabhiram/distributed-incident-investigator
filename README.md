@@ -108,9 +108,12 @@ orchestration-only entry point: `run_correlation` → handoff payload → `inves
 `IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed`,
 `undefined` (a `NaN` series) or `unobserved` (no series) (set via `run_correlation(services=...)`), so
 "no anomaly" is distinguishable from "not measured"; `unobserved_dependencies` lists anomalous callers of
-such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; they predate the
+such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; Evaluations 1–6 predate the
 `undetermined` status) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
-Whether a real model uses `undetermined` sensibly is untested; the manual, user-run procedure is in
+Evaluation 7 ran the `undetermined` schema live once per case (full and partial telemetry): both
+returned valid `undetermined` hypotheses with valid evidence, and no defect was found; it is two
+anecdotes, not evidence of accuracy or calibrated confidence. A deterministic-vs-LLM comparison is
+planned future work, not built. The manual, user-run procedure is in
 [docs/manual-evaluation.md](docs/manual-evaluation.md).
 
 ## Getting started
@@ -238,7 +241,7 @@ rather than swallowed.
    coverage semantics; validated once against the live stack; thresholds are fixture/demo policy and
    log evidence is not implemented) — analyze telemetry to identify affected services and
    relationships during an incident; build the structured incident context.
-6. **LLM investigator** (contract, first Anthropic-backed executor and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; Anthropic transport not run live; `undetermined` behavior still needs live evaluation; not scheduled) — LLM reasons over the incident context to produce a root-cause
+6. **LLM investigator** (contract, first Anthropic-backed executor and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; Anthropic transport not run live; `undetermined` behavior observed live in two cases (Evaluation 7); not scheduled) — LLM reasons over the incident context to produce a root-cause
    hypothesis with cited evidence.
 7. **Dashboard** (not built) — visualize services, incidents, and hypotheses.
 
