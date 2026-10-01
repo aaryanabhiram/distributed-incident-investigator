@@ -17,9 +17,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from shared.investigator import (
+    ContractViolation,
     Hypothesis,
     InvestigatorInput,
     validate_evidence,
+    validate_origin,
 )
 
 SYSTEM_PROMPT = """\
@@ -56,6 +58,9 @@ are equally consistent with the evidence. An unobserved or undefined callee is u
 faulty. When undetermined, root_cause must state what is established and what is unknown, must \
 not present any service as the established or most likely origin, and should cite the relevant \
 unobserved_dependency items.
+- origin_service is the machine-readable origin. When status is "identified", set it to the \
+exact service name, as written in the context, of the origin you name in root_cause. When \
+status is "undetermined", set it to null. Always include the field.
 - supporting_evidence must be a non-empty list of unique references. Each reference has \
 kind ("anomaly", "relationship" or "unobserved_dependency") and the zero-based index shown in \
 the context for an item that actually exists.
@@ -74,14 +79,35 @@ def response_schema() -> dict[str, Any]:
     """`Hypothesis`' JSON schema with `status` required, so a provider must state it.
 
     `Hypothesis` defaults `status` for old serialized data; a model reply that omits it would
-    silently read as a confident "identified", so model output must always say it.
+    silently read as a confident "identified", so model output must always say it. The same goes
+    for `origin_service`, which the model must state (null when undetermined).
     """
     schema = Hypothesis.model_json_schema()
-    schema["required"] = sorted({*schema.get("required", []), "status"})
+    schema["required"] = sorted({*schema.get("required", []), "status", "origin_service"})
     return schema
 
 
+class ProviderError(RuntimeError):
+    """A provider answered, but not with a usable completion.
+
+    Provider-independent: a `CompleteFn` signals "the provider refused, ran out of tokens or
+    returned nothing" by raising this with a `category`, so evaluation can record it as a
+    provider event rather than a verdict on the investigator's reasoning. Transport failures need
+    no wrapper: `httpx` errors are recognised as they are. Never put credentials in the message.
+    """
+
+    CATEGORIES = ("refusal", "token_limit", "empty_response", "other")
+
+    def __init__(self, message: str, category: str = "other") -> None:
+        if category not in self.CATEGORIES:
+            raise ValueError(f"unknown provider failure category {category!r}")
+        super().__init__(message)
+        self.category = category
+
+
 # (prompt, JSON schema the response must follow) -> raw JSON text from the model.
+# Provider-side failures raise `ProviderError` (or an `httpx` error); the investigator never
+# retries, repairs or replaces them with a hypothesis.
 CompleteFn = Callable[[Prompt, dict[str, Any]], str]
 
 
@@ -116,6 +142,7 @@ class LLMInvestigator:
         # Raises pydantic.ValidationError for malformed JSON or contract violations.
         hypothesis = Hypothesis.model_validate_json(raw)
         if "status" not in hypothesis.model_fields_set:
-            raise ValueError("model output omitted the required 'status' field")
+            raise ContractViolation("model output omitted the required 'status' field")
         validate_evidence(investigator_input, hypothesis)
+        validate_origin(investigator_input, hypothesis)
         return hypothesis

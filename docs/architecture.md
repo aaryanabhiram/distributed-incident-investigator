@@ -206,16 +206,24 @@ of evidence in the incident context support it. The LLM's input is bounded by co
 reviewable, and decoupled from how large the system's telemetry volume actually is.
 
 **Contract (built, `shared/investigator/`).** `InvestigatorInput` wraps one `IncidentContext`
-(built from a handoff payload). The result is a `Hypothesis`: `status`, `root_cause`, `confidence` (0–1)
+(built from a handoff payload). The result is a `Hypothesis`: `status`, `origin_service`, `root_cause`, `confidence` (0–1)
 and `supporting_evidence`, a non-empty list of `EvidenceRef(kind, index)` pointing at
 anomalies, relationships or unobserved dependencies in the input. `status` is `identified`
 (`root_cause` names the most likely origin) or `undetermined` (the evidence cannot support
 choosing one; `root_cause` states what is established and what is unknown). It defaults to
-`identified` so hypotheses serialized before it existed still load. `investigate(payload,
-investigator)` runs any callable satisfying the `Investigator` protocol and rejects evidence
-references absent from the input, for either status. What is *not* checked: that a stated cause is
-correct, or that an `undetermined` text names no origin; the schema constrains shape, not
-diagnosis. The contract is provider-independent and contains no root-cause logic; tests use a
+`identified`. `origin_service` is the machine-readable origin, never parsed from `root_cause`: the
+model requires it non-empty when `identified` and `None` when `undetermined`. Whether it names a
+service in the input needs the input, so `validate_origin` checks it (any service the context
+mentions) next to `validate_evidence`; `Hypothesis` alone cannot. Hypotheses serialized before
+`origin_service` existed no longer load as `identified`. `investigate(payload, investigator)` runs
+any callable satisfying the `Investigator` protocol, revalidates its result from scratch (a
+`Hypothesis` built with `model_construct`/`model_copy` skips field validators, so `revalidate`
+re-dumps it) and rejects evidence references and origins absent from the input, for either status
+(`ContractViolation`, a `ValueError` subclass). What is *not* checked: that a stated cause is correct,
+or that an `undetermined` text names no origin; the schema constrains shape, not diagnosis. A
+context with no anomalies, relationships or unobserved dependencies cannot yield a valid
+`Hypothesis` (evidence is required), so a no-incident window is handled before the investigator,
+in `shared/pipeline.py` (see below), not represented as an answer. The contract is provider-independent and contains no root-cause logic; tests use a
 plain test double.
 
 **LLM executor (built, `shared/investigator/llm.py` + `anthropic.py`).** `LLMInvestigator`
@@ -226,7 +234,7 @@ the `metric_coverage` statuses and `unobserved_dependencies` (unknown health, no
 and when to answer `undetermined` instead of naming an origin; an
 injected `CompleteFn(prompt, json_schema) -> raw JSON text` does the transport; the reply is parsed
 with `Hypothesis.model_validate_json` and checked with `validate_evidence`. The schema sent to
-the provider marks `status` required, and a reply that omits it raises (it would otherwise default
+the provider marks `status` and `origin_service` required (null when undetermined), and a reply that omits it raises (it would otherwise default
 to a confident `identified`). Invalid output raises —
 no repair, clamping, retries, or fallback hypothesis. No tools, agent loop, memory, or state.
 The provider is Anthropic's Messages API with native JSON-schema output, called via `httpx` (an
@@ -243,9 +251,123 @@ outputs docs; the schema sent drops keywords the API does not accept, which `Hyp
 locally. The Anthropic transport has not been run live. `MAX_TOKENS` is 1024: a model that spends output tokens on
 thinking could hit `max_tokens`, which surfaces as `ProviderError` rather than a partial answer.
 
+**Deterministic investigator (built, `shared/investigator/deterministic.py`).** `DeterministicInvestigator`
+implements the same `Investigator` protocol with explicit rules, frozen as `chain-v1` before any
+comparison with the LLM and not to be tuned to model outputs (a change gets a new version). It
+knows only gateway → order → payment. It returns `undetermined` (citing every available evidence
+item) for: missing relationships, any anomalous service with an unknown callee (undefined,
+unobserved or undeclared coverage is never health), several or no unique candidate origins,
+out-of-chain services or edges, and contradictory contexts; it raises `ValueError` when the context
+holds no evidence at all. It names an origin only for a unique anomalous service with no anomalous
+or unknown callee, with every other anomalous service upstream of it. Limitations: a leaf is
+credited with its latency by topology and an upstream co-fault is not excluded; `confidence` is a
+fixed placeholder. The rules and their reasoning are in the module docstring.
+
+**Offline evaluation (built, `shared/evaluation/`).** Pure scoring, no model calls or I/O.
+`ScenarioExpectation` (kept apart from the frozen investigator payloads and never passed to an
+investigator) separates the injected cause from the status/origin the evidence justifies.
+`run_scenario`/`score_hypothesis` revalidate the result and classify it as correct
+identification, false attribution, unsupported attribution (identified where undetermined was
+expected, even if it matches the injection), appropriate abstention, over-abstention or contract
+failure, and report evidence validity and, given a gold set, precision/recall. A scenario can
+register `expected_status="unscored"` (no defensible correctness label): the result is still
+validated and its evidence reported, but it is never counted as correct, incorrect or an
+abstention. `summarize` only counts outcomes: with
+a handful of scenarios no rate is meaningful, and confidence is not scored. Only
+`ValidationError` and `ContractViolation` become `contract_failure`. A provider-side failure is a
+separate, non-scored `provider_failure` event (`failure_category`, a short redacted
+`failure_detail`): `ProviderError` (now defined in `llm.py`, provider-independent, with category
+`refusal`, `token_limit`, `empty_response` or `other`; the Anthropic adapter raises it for refusal,
+`max_tokens` and an empty reply) and `httpx` errors (`http_status` with the code only, `timeout`,
+`network`). It is never turned into an `undetermined` hypothesis, never counted as correct,
+incorrect, abstention or contract failure, never retried, and the next scenario still runs. The
+detail never holds a body, header or URL, and key-shaped text is redacted. Anything else (plain
+`ValueError`, `KeyError`, `TypeError`, a bad URL) is a programming error and propagates. A custom
+adapter must raise `ProviderError` for refusals and similar replies; only the shipped Anthropic
+adapter does today.
+
+**Experiment runner (built, offline-tested only; `shared/evaluation/runner.py`,
+`scripts/run_experiment.py`).** `check_registration` loads a capture folder and refuses anything
+that is not frozen, verified (everything `verify_manifest` re-derives, including the manifest
+digest), non-smoke, registered for the shipped Anthropic adapter with a model, made from the code
+checked out now (clean tree outside `captures/`, and `code_unchanged_since` the captured commit),
+or whose ambient `ANTHROPIC_MODEL`/`ANTHROPIC_BASE_URL` disagree with the registration (an error,
+never a substitution). `run_experiment` runs, per scenario in manifest order, the deterministic
+baseline once and the LLM investigator `llm_repeats` times (5; configurable for tests) on the same
+`InvestigatorInput`, one recorded run each, nothing overwritten or dropped. Exactly one provider
+request per LLM run: no retry, repair, fallback or second call; repetitions are independent calls
+with an identical prompt and the adapter sets no sampling parameter (provider defaults).
+`run_config.request_parameters` records this from the implementation, not by assertion: the
+shipped adapter is run once against an in-memory recording transport (no network) and the request
+body it builds is read. It lists the explicitly sent non-content parameters (`model`,
+`max_tokens`, the `json_schema` output format), the sampling parameters checked for (`temperature`,
+`top_p`, `top_k`), which of those were explicitly sent (none today) and which therefore use the
+provider's defaults. The default values themselves are not recorded (not known to the runner).
+Each LLM run carries `request_parameters_sha256` of that record. Provider
+failures are recorded as non-scored events and the run continues; programming or configuration
+errors propagate and stop it, with the runs so far already in `runs.jsonl` (no `results.json` means
+the run did not finish). Before every request an `LLMProbe` checks that the rendered prompt and
+response schema about to be sent hash to the registered values (`IntegrityError` otherwise). Each
+run records outcome, `scored`, the hypothesis fields, evidence validity/precision/recall, the
+expectation, contract error, provider failure category/detail, `elapsed_seconds`
+(`perf_counter` around the one investigator call, scoring excluded), `provider_requests`, the actual
+rendered-prompt hash, `usage` and `cost_usd`. Usage is whatever the provider reported for that
+response (the adapter's optional `on_usage` hook passes only the whitelisted counters
+`input_tokens`, `output_tokens` and the two cache counters, also for a refused or truncated reply);
+absent or malformed usage is `null` with `available: false`, never 0 or an estimate. Cost is
+computed only from operator-supplied `--price-input-per-mtok`/`--price-output-per-mtok` and
+available usage, and is `null` otherwise or when cache tokens are non-zero. `results.json`
+(canonical, sorted keys) holds the registration (manifest digest, registered hashes, captured
+commit, code revision, per-scenario payload and prompt hashes), the run configuration and request
+semantics, every run and a counts-only summary (`scored_runs` excludes `unscored`,
+`contract_failure` and `provider_failure`; no rates). No credentials, headers or response bodies
+are written. Tested only with mocked transports and a throwaway Git repository: no real provider,
+schema acceptance, latency or token count has been observed.
+
+**Scenarios and capture (prepared, not yet run live; `shared/evaluation/scenarios.py`,
+`scripts/capture_payment_latency.py`).** Three scenarios come from one payment-latency capture:
+S1 full telemetry (correctness `unscored`: no span durations or self-time, and a leaf does not
+establish causal origin), S2 the same window with the PromQL restricted to gateway and order
+(expected `undetermined`, registered only if the captured context has the order -> payment
+unobserved dependency) and S3 S1 with its relationships deleted (a controlled ablation, expected
+`undetermined` only while several anomalous services remain with no edge). The script records the
+raw Prometheus and Jaeger responses unmodified, rebuilds the contexts from that raw text with the
+unchanged `run_correlation`, writes label-free payloads under opaque `c-<hash>` ids and a separate
+`manifest.json` (injected cause, expected status/origin, gold evidence looked up in the payload,
+window, threshold, queries, registration hashes). Registration binds: the system prompt, the
+provider-independent response schema, the `chain-v1` version AND the source of `deterministic.py`,
+the exact rendered prompt of every payload, and a transport block. Only the shipped Anthropic
+adapter's request configuration (constants, adapted schema, adapter source) is hashed and
+verified here; for any other provider the operator supplies the hash and the manifest says
+`verified_by_repo: false` (an Anthropic hash is never presented as another adapter's schema).
+A live capture also needs the operator's saved fault-injection evidence (request body, armed-at
+time, successful response, readback); it is validated against the window and its hashes are stored,
+but it cannot prove which service accepted the fault, and the manifest says so. S2 must be
+comparable to S1 (same window, relationships and thresholds, shared anomaly values within a 1%
+relative tolerance, because the two queries are separate requests). `verify` re-derives every
+label, flag, kind, gold index, injection record and hash from `raw/` and `evidence/` and compares
+them with the manifest, so editing labels or the smoke flag is reported; the smoke flag is derived
+from `capture.mode`. `verify --freeze` is the only way `frozen` becomes true and stores a hash of
+the manifest (excluding the freeze metadata); it is refused for smoke data, failed verification, a
+capture made on a dirty tree, a dirty tree now, code changed since the captured commit, or an
+unset model/transport. HEAD itself may differ from the captured commit as long as it descends from
+it and only paths under `captures/` changed (`gitstate.code_unchanged_since`), so committing the
+capture folder before or after freezing is fine and a frozen manifest stays verifiable and
+runnable; any source commit, uncommitted change or untracked source file is not. The committed 2026-09-30 backend fixtures were used only as an offline smoke test;
+the Evaluation 7 payloads were never saved and cannot be reconstructed. Synthetic order/gateway
+scenarios are not built: no fault hooks exist there, so their contexts would be assumed, not
+observed.
+
 **End-to-end entry point (`shared/pipeline.py`).** `correlate_and_investigate(...)` takes the
 `run_correlation` inputs plus an `Investigator`, runs `run_correlation`, converts the context with
-`incident_context_to_payload`, and returns `investigate(payload, investigator)`. Orchestration
+`incident_context_to_payload`, and returns `investigate(payload, investigator)`, except that a
+context with no anomalies never reaches the investigator (no evidence means no valid
+`Hypothesis`, and an LLM would be paid to fail). Whether that is health depends on coverage:
+`NoIncident(window_start, window_end, metric_coverage)` only when the caller declared `services`
+(the services the metric query is meant to cover) and every one was `observed`; otherwise
+`NoObservation(..., metric_coverage, reason)`: nothing declared, an empty or NaN result, or any
+declared service `undefined`/`unobserved` (fail closed; missing telemetry is never health). The
+return type is `Hypothesis | NoIncident | NoObservation`; the only caller in the repo is its test. Orchestration
 only; errors from either layer propagate. Tested with a fake `Investigator`.
 
 **Provider status.** The Anthropic transport exists only because the first implementation task asked for a

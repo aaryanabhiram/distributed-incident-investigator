@@ -323,3 +323,109 @@ this was written):
 
 Record model, date, inputs, raw output and your own assessment as a new "Evaluation 7+" entry.
 One run per case is an anecdote, not a benchmark.
+
+## Capturing scenarios for the investigator comparison (S1-S3)
+
+Prepared, not yet run. This captures a *new* payment-latency incident (the Evaluation 7 payloads
+were never saved, and the committed 2026-09-30 backend fixtures are offline smoke data only: they
+are not Evaluation 7 and not a live capture). It calls no model. It only reads the stack: leave
+Compose running, and do not run `docker compose up`, `build`, `restart` or `down` (Prometheus and
+Jaeger keep no volume). Git Bash on Windows; the Python commands use the project venv.
+
+**Before you start.** A manifest can only be frozen from a clean, committed tree: the capture
+records the commit and whether the tree was dirty, and `--freeze` refuses a capture made on
+uncommitted changes. The code under test (investigators, scorer, `chain-v1`, prompt, scripts)
+therefore has to be committed first. That is your decision to make; nothing here commits for you.
+
+1. Check the stack: `curl -s localhost:8000/health`, `localhost:8001/health`,
+   `localhost:8002/health` (gateway, order, payment) and `curl -s localhost:9090/-/ready`.
+2. Arm the fault **and keep the evidence**. The request body, the time just before the POST, the
+   successful response and a readback are what the capture later binds the injected cause to.
+   `curl -f` makes a rejected request a failure: if the POST fails, stop, clear the fault (step 6)
+   and start again with a fresh evidence folder.
+
+   ```bash
+   mkdir -p captures/evidence-1
+   cat > captures/evidence-1/fault-request.json <<'EOF'
+   {"mode": "latency", "duration_seconds": 120, "latency_ms": 1500}
+   EOF
+   date -u +%Y-%m-%dT%H:%M:%SZ > captures/evidence-1/fault-armed-at.txt
+   curl -sS -f -X POST localhost:8002/admin/fault -H "Content-Type: application/json" \
+     -d @captures/evidence-1/fault-request.json -o captures/evidence-1/fault-response.json
+   curl -sS -f localhost:8002/admin/fault -o captures/evidence-1/fault-readback-before-traffic.json
+   ```
+
+3. Send traffic and wait one or two scrape intervals:
+
+   ```bash
+   for i in $(seq 12); do
+     curl -s -X POST localhost:8000/checkout -H "Content-Type: application/json" \
+       -d '{"item": "widget", "amount": 25.0}' > /dev/null
+   done
+   sleep 15
+   ```
+
+4. **Immediately** (within about a minute: Jaeger returns at most 100 gateway traces and health
+   checks keep adding them) capture into a NEW directory, naming the model and provider the
+   comparison will use (`anthropic` is the shipped adapter, whose transport hash is verified here;
+   for another adapter pass `--transport-config-sha256` with the hash of that adapter's request and
+   schema configuration, which this repository cannot verify):
+
+   ```bash
+   .venv/Scripts/python.exe scripts/capture_payment_latency.py capture --out captures/payment-latency-1 \
+     --injection-evidence captures/evidence-1 --model <model> --provider anthropic
+   ```
+
+   Before any request the script checks that the evidence shows an accepted latency fault above
+   the anomaly threshold armed while the window was open; otherwise it stops and captures nothing.
+   It then makes three GETs and either writes `raw/`, `evidence/`, `payloads/` and `manifest.json`
+   or prints why it aborted. After an abort the directory holds only the raw responses of that
+   attempt: never reuse it. The fault lasts 120 s and has probably expired, so re-arm it with new
+   evidence (steps 2-3) and capture into another new directory.
+5. Verify: `.venv/Scripts/python.exe scripts/capture_payment_latency.py verify captures/payment-latency-1`.
+   It re-derives everything from `raw/` and `evidence/`: rebuilds the payloads, recomputes every
+   label, flag, kind and gold index, the injection record, the rendered-prompt hashes and the
+   registration hashes, and reports any difference (it cannot be fooled by editing the manifest).
+6. Clear the fault whenever you are done, or if anything above fails; it is safe at any time:
+   `curl -X DELETE localhost:8002/admin/fault`
+7. Review `manifest.json` and the payloads by hand, then freeze:
+   `.venv/Scripts/python.exe scripts/capture_payment_latency.py verify captures/payment-latency-1 --freeze`.
+   Freezing is refused for smoke data, a manifest that fails verification, a capture made on a dirty
+   tree, a dirty tree now, code that changed since the captured commit, and an unset model or
+   transport. The cleanliness check ignores the capture folder and everything under `captures/`
+   (where the saved evidence lives) but counts every other change, including untracked source
+   files. Committing the capture folder moves HEAD but not the code, so it may be committed before
+   or after freezing; any source commit after the capture makes the capture unusable. A frozen manifest stores a hash of its own content; any later edit is reported by
+   `verify`. Do not edit `SYSTEM_PROMPT`, the schema, the adapter or `chain-v1` after capturing:
+   their hashes are registered, and `verify` fails if they change.
+
+What the evidence does not prove: the fault response carries no service name, so "the injected
+cause is payment" rests on the procedure (the POST goes to payment's admin port). The manifest
+says so (`capture.injection.attribution`).
+
+## Running the comparison (after a frozen capture)
+
+Prepared, not yet run, and it makes paid requests: up to scenarios x 5 = 15 requests to the
+registered Anthropic model (the deterministic baseline makes none). Only `ANTHROPIC_API_KEY` is read
+from the environment. The model and endpoint come from the registration; an `ANTHROPIC_MODEL` or
+`ANTHROPIC_BASE_URL` set to anything else makes the runner refuse rather than substitute.
+
+```bash
+.venv/Scripts/python.exe scripts/run_experiment.py --capture captures/payment-latency-1 \
+  --out captures/results/run-1
+```
+
+Optionally add `--price-input-per-mtok <usd> --price-output-per-mtok <usd>` (your own numbers) to
+get a cost; without them `cost_usd` is null. `--llm-repeats` defaults to the registered 5.
+
+The runner refuses unless the capture is frozen, verifies it again, and the tree is clean and on
+the captured code (committing `captures/` is fine). It writes `runs.jsonl` as each run finishes and
+`results.json` only when all runs are done; no `results.json` means the run stopped early (a
+configuration or programming error; provider refusals, token limits and network errors are recorded
+as `provider_failure` events and the run continues, with no retry). Every run, including each of
+the five repetitions and every failure, is a separate record. Token usage is whatever the provider
+reported and is `null` when it was not. `run_config.request_parameters` lists what the request
+explicitly sends and states that no sampling parameter (`temperature`, `top_p`, `top_k`) is sent,
+so the provider's defaults apply; their values are not recorded. The summary has counts only; a handful of scenarios and
+repetitions supports no accuracy claim, and the unscored S1 is excluded from every correctness and
+abstention denominator.

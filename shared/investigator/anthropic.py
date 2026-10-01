@@ -9,11 +9,14 @@ the environment: `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` (both required), and 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 
-from shared.investigator.llm import CompleteFn, LLMInvestigator, Prompt
+from shared.investigator.llm import CompleteFn, LLMInvestigator, Prompt, ProviderError
+
+__all__ = ["ProviderError", "anthropic_complete", "anthropic_investigator_from_env", "wire_schema"]
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 API_VERSION = "2023-06-01"
@@ -22,10 +25,6 @@ TIMEOUT_SECONDS = 60.0
 
 # Keywords the API's schema subset does not accept. They are enforced locally by `Hypothesis`.
 _UNSUPPORTED = {"minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "title"}
-
-
-class ProviderError(RuntimeError):
-    """The provider returned no usable text (refusal, truncation, or an unexpected shape)."""
 
 
 def wire_schema(schema: Any) -> Any:
@@ -40,14 +39,48 @@ def wire_schema(schema: Any) -> Any:
     return out
 
 
+USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+UsageSink = Callable[[dict[str, int | None]], None]
+
+
+def usage_from_response(data: Any) -> dict[str, int | None]:
+    """The provider-reported token counts, each `None` unless the response gave a real integer.
+
+    Only whitelisted counter fields are read; nothing else from the response is exposed. Absent
+    or malformed usage is `None`, never 0 and never an estimate.
+    """
+    usage = data.get("usage") if isinstance(data, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
+
+    def count(name: str) -> int | None:
+        value = usage.get(name)
+        return (
+            value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+        )
+
+    return {name: count(name) for name in USAGE_FIELDS}
+
+
 def anthropic_complete(
     *,
     api_key: str,
     model: str,
     base_url: str = DEFAULT_BASE_URL,
     client: httpx.Client | None = None,
+    on_usage: UsageSink | None = None,
 ) -> CompleteFn:
-    """Build a `CompleteFn` that makes one Messages API call per invocation."""
+    """Build a `CompleteFn` that makes one Messages API call per invocation.
+
+    `on_usage`, if given, is called once per successful HTTP response with the provider-reported
+    token counts (`usage_from_response`), before the stop reason is checked, so a refused or
+    truncated reply still reports what it cost. It does not change the request, the returned
+    text or any error; with no sink the behaviour is exactly as before.
+    """
 
     def complete(prompt: Prompt, schema: dict[str, Any]) -> str:
         body = {
@@ -70,12 +103,17 @@ def anthropic_complete(
                 http.close()
         response.raise_for_status()
         data = response.json()
+        if on_usage is not None:
+            on_usage(usage_from_response(data))
         stop_reason = data.get("stop_reason")
         if stop_reason in ("refusal", "max_tokens"):
-            raise ProviderError(f"model stopped without a complete answer: {stop_reason}")
+            raise ProviderError(
+                f"model stopped without a complete answer: {stop_reason}",
+                category="refusal" if stop_reason == "refusal" else "token_limit",
+            )
         texts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
         if not texts:
-            raise ProviderError("response contained no text content")
+            raise ProviderError("response contained no text content", category="empty_response")
         return "".join(texts)
 
     return complete

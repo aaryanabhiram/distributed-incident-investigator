@@ -190,7 +190,13 @@ cleared afterwards. Anomaly values were not printed and are not recorded here.
 
 ## Planned next experiment (future work, not a result)
 
-Nothing below has been built or run. Plan: implement a transparent deterministic investigator
+Status update: the deterministic investigator (`shared/investigator/deterministic.py`, frozen rule
+set `chain-v1`), the structured `origin_service` field and the offline scoring module
+(`shared/evaluation/`) are now built and unit-tested; scenario capture is prepared
+(`scripts/capture_payment_latency.py`, S1 correctness unscored, S2 and S3 expected
+`undetermined`, tamper-evident verify/freeze, and an experiment runner that records every run, provider failures, timing and provider-reported usage) but nothing has been captured live and no
+comparison has been run; the 2026-09-30 backend fixtures are offline smoke data only. The
+Evaluation 7 payloads were never saved, so they cannot be re-scored. Evaluations 1-7 predate `origin_service`. Plan: implement a transparent deterministic investigator
 behind the existing `Investigator` protocol and compare it with `LLMInvestigator` on *identical*
 `IncidentContext` inputs, over controlled fault scenarios whose ground-truth origin is known.
 Measures to record per investigator: correct identification, false attribution (naming a wrong

@@ -72,7 +72,8 @@ No Kafka, Kubernetes, Redis, vector databases, or agent frameworks — see
 
 ```
 services/       Independently runnable FastAPI services
-shared/         Shared library code (telemetry setup, correlation, fault hooks)
+shared/         Shared library code (telemetry, correlation, fault hooks, investigators, offline evaluation)
+scripts/        Manually invoked helper scripts (scenario capture); never run by tests or CI
 docs/           Architecture and design documentation
 tests/          Tests
 ```
@@ -99,17 +100,22 @@ Compose stack (`tests/fixtures/backends/`, provenance in its README); the evalua
 committed in `shared/correlation/queries.py` (reconstructed from the evaluation history). `shared/correlation/handoff.py`
 converts an `IncidentContext` to/from a JSON-safe dict — the boundary the investigator
 consumes. `shared/investigator/` defines the investigator contract (`InvestigatorInput` →
-`Hypothesis` with status `identified`/`undetermined`, root cause, confidence and evidence references) and one LLM-backed executor
+`Hypothesis` with status `identified`/`undetermined`, a structured `origin_service` (required when identified, null when undetermined, checked against the input's services), root cause, confidence and evidence references), a deterministic rule-based investigator (`deterministic.py`, frozen rule set `chain-v1`, written only for the gateway → order → payment chain; it abstains rather than guess) and one LLM-backed executor
 (`llm.py`, with an Anthropic Messages API transport in `anthropic.py`): a single bounded call whose
 output is validated, never repaired. It needs `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`; tests use a
 mock and make no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
 provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. OpenAI is not a dependency, module or configuration of this repo, and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
-orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`.
+orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`,
+or, with no anomaly, no investigator call: `NoIncident` only if every declared service was observed, otherwise `NoObservation` (empty, NaN or undeclared telemetry is never read as health). `shared/evaluation/`
+scores investigator results offline against scenario expectations (an `unscored` expectation is
+never counted as correct, incorrect or abstention, and a provider refusal, token limit or
+transport error is a separate non-scored `provider_failure` event) and prepares the payment-latency scenarios;
+`scripts/run_experiment.py` runs the registered comparison on a frozen capture (deterministic once, LLM five times per scenario, every run and provider failure recorded with timing and provider-reported token usage; offline-tested only, never run live). `scripts/capture_payment_latency.py` is the manually invoked capture (not yet run live; it needs saved fault-injection evidence, and `verify`/`--freeze` re-derive and hash everything so edited labels are detected).
 `IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed`,
 `undefined` (a `NaN` series) or `unobserved` (no series) (set via `run_correlation(services=...)`), so
 "no anomaly" is distinguishable from "not measured"; `unobserved_dependencies` lists anomalous callers of
 such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; Evaluations 1–6 predate the
-`undetermined` status) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
+`undetermined` status; Evaluations 1–7 predate `origin_service`) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
 Evaluation 7 ran the `undetermined` schema live once per case (full and partial telemetry): both
 returned valid `undetermined` hypotheses with valid evidence, and no defect was found; it is two
 anecdotes, not evidence of accuracy or calibrated confidence. A deterministic-vs-LLM comparison is

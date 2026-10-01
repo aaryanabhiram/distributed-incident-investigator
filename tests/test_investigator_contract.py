@@ -40,6 +40,7 @@ def _payload() -> dict:
 
 def _hypothesis(**overrides) -> Hypothesis:
     fields = {
+        "origin_service": "payment",
         "root_cause": "test-double cause",
         "confidence": 0.5,
         "supporting_evidence": [EvidenceRef(kind="anomaly", index=0)],
@@ -132,7 +133,7 @@ def test_serialization_is_json_safe_and_deterministic():
 
 def test_status_defaults_to_identified_and_accepts_only_known_values():
     assert _hypothesis().status == "identified"
-    assert _hypothesis(status="undetermined").status == "undetermined"
+    assert _hypothesis(status="undetermined", origin_service=None).status == "undetermined"
     with pytest.raises(ValidationError):
         _hypothesis(status="unsure")
 
@@ -148,3 +149,84 @@ def test_validate_evidence_bounds_unobserved_dependency_references():
     bad = _hypothesis(supporting_evidence=[EvidenceRef(kind="unobserved_dependency", index=1)])
     with pytest.raises(ValueError, match=r"unobserved_dependency\[1\] not in incident context"):
         investigate(payload, lambda _: bad)
+
+
+# ------------------------------------------------------------ structured origin
+
+
+def test_identified_requires_a_non_empty_origin():
+    with pytest.raises(ValidationError, match="origin_service"):
+        _hypothesis(origin_service=None)
+    with pytest.raises(ValidationError, match="origin_service"):
+        _hypothesis(origin_service="")
+
+
+def test_undetermined_requires_no_origin():
+    with pytest.raises(ValidationError, match="origin_service=None"):
+        _hypothesis(status="undetermined", origin_service="payment")
+    assert _hypothesis(status="undetermined", origin_service=None).origin_service is None
+
+
+def test_origin_is_not_inferred_from_root_cause_text():
+    with pytest.raises(ValidationError):
+        Hypothesis(
+            root_cause="payment is the origin",
+            confidence=0.5,
+            supporting_evidence=[EvidenceRef(kind="anomaly", index=0)],
+        )
+
+
+def test_origin_must_name_a_service_in_the_input_context():
+    assert investigate(_payload(), lambda _: _hypothesis(origin_service="order")).origin_service
+    with pytest.raises(ValueError, match="'billing' is not a service"):
+        investigate(_payload(), lambda _: _hypothesis(origin_service="billing"))
+
+
+def test_origin_may_be_any_service_the_context_mentions():
+    payload = _payload()
+    payload["metric_coverage"] = [
+        {"metric_name": "error_rate", "service": "ledger", "status": "unobserved"}
+    ]
+    assert investigate(payload, lambda _: _hypothesis(origin_service="ledger"))
+
+
+def test_undetermined_with_no_origin_passes_origin_validation():
+    undetermined = _hypothesis(status="undetermined", origin_service=None)
+    assert investigate(_payload(), lambda _: undetermined) == undetermined
+
+
+def test_legacy_identified_hypothesis_without_origin_no_longer_loads():
+    legacy = {
+        "root_cause": "x",
+        "confidence": 0.5,
+        "supporting_evidence": [{"kind": "anomaly", "index": 0}],
+    }
+    with pytest.raises(ValidationError):
+        Hypothesis.model_validate(legacy)
+
+
+def test_revalidate_runs_validators_on_instances_built_without_them():
+    from shared.investigator import ContractViolation, revalidate
+
+    assert revalidate(_hypothesis()) == _hypothesis()
+    assert revalidate(_hypothesis().model_dump()) == _hypothesis()
+    with pytest.raises(ValidationError):
+        revalidate(_hypothesis().model_copy(update={"origin_service": None}))
+    with pytest.raises(ValidationError):
+        revalidate(Hypothesis.model_construct(status="identified", root_cause="x", confidence=0.5))
+    with pytest.raises(TypeError):
+        revalidate("nope")
+    assert issubclass(ContractViolation, ValueError)
+
+
+def test_investigate_rejects_an_unvalidated_malformed_instance():
+    malformed = _hypothesis().model_copy(update={"origin_service": None})
+    with pytest.raises(ValidationError):
+        investigate(_payload(), lambda _: malformed)
+
+
+def test_hypothesis_schema_description_states_only_the_output_contract():
+    description = Hypothesis.model_json_schema()["description"]
+    assert "identified" in description and "undetermined" in description
+    for implementation_word in ("validate_origin", "validate_evidence", "serialized", "pydantic"):
+        assert implementation_word not in description

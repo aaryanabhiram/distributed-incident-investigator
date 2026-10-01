@@ -35,3 +35,14 @@ def error_ratio_query(window: str) -> str:
     """Share of 5xx responses per service. 0/0 (no traffic in the window) yields NaN."""
     errors = _per_service(_COUNT, f'{_BUSINESS},http_status_code=~"5.."', window)
     return f"{errors} / {_per_service(_COUNT, _BUSINESS, window)}"
+
+
+def restricted_mean_latency_query(window: str, services: list[str]) -> str:
+    """`mean_latency_query` limited to `services`, modelling telemetry that is not observed.
+
+    A textual edit of the reconstructed query (the same edit Evaluations 5-7 used with
+    `gateway|order`): it adds a `service=~...` matcher to every selector, so the other services
+    return no series at all and read as `unobserved`.
+    """
+    matcher = "|".join(services)
+    return mean_latency_query(window).replace("{http_target", f'{{service=~"{matcher}",http_target')

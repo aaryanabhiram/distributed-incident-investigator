@@ -43,6 +43,7 @@ def _payload() -> dict:
 def _answer(**overrides) -> str:
     fields = {
         "status": "identified",
+        "origin_service": "payment",
         "root_cause": "payment service is failing",
         "confidence": 0.7,
         "supporting_evidence": [
@@ -91,6 +92,7 @@ def test_prompt_defines_relationship_direction_semantics():
 def test_valid_output_becomes_hypothesis_with_evidence_preserved():
     result = investigate(_payload(), LLMInvestigator(_fake(_answer())))
     assert result == Hypothesis(
+        origin_service="payment",
         root_cause="payment service is failing",
         confidence=0.7,
         supporting_evidence=[
@@ -274,6 +276,7 @@ def _payload_with_unobserved_callee() -> dict:
 def _undetermined(**overrides) -> str:
     fields = {
         "status": "undetermined",
+        "origin_service": None,
         "root_cause": "order is slow; payment, which order calls, was not measured",
         "confidence": 0.4,
         "supporting_evidence": [
@@ -331,3 +334,41 @@ def test_prompt_indexes_unobserved_dependencies_and_defines_the_undetermined_cho
     assert "must not present any service as the established or most likely origin" in system
     assert '"unobserved_dependency"' in system
     assert "exactly one hypothesis" in system  # still a single hypothesis, never a list
+
+
+# ------------------------------------------------------------- structured origin
+
+
+def test_schema_and_prompt_require_origin_service():
+    schema = response_schema()
+    assert "origin_service" in schema["required"]
+    assert "origin_service" in schema["properties"]
+    assert "origin_service" not in Hypothesis.model_json_schema().get("required", [])
+    system = build_prompt(build_investigator_input(_payload())).system.replace("\n", " ")
+    assert "origin_service" in system
+    assert "set it to null" in system
+    assert "exact service name" in system
+
+
+def test_origin_outside_the_context_is_rejected():
+    raw = _answer(origin_service="billing")
+    with pytest.raises(ValueError, match="'billing' is not a service"):
+        investigate(_payload(), LLMInvestigator(_fake(raw)))
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"origin_service": None},  # identified without an origin
+        {"origin_service": ""},
+        {"status": "undetermined", "origin_service": "payment"},  # undetermined with an origin
+    ],
+)
+def test_origin_status_mismatch_is_rejected_not_repaired(overrides):
+    with pytest.raises(ValidationError):
+        investigate(_payload(), LLMInvestigator(_fake(_answer(**overrides))))
+
+
+def test_undetermined_reply_with_null_origin_is_accepted():
+    result = investigate(_payload_with_unobserved_callee(), LLMInvestigator(_fake(_undetermined())))
+    assert result.origin_service is None
