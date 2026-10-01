@@ -139,7 +139,7 @@ Model output and our grounding assessment are kept separate in each entry.
 ## Evaluation 7 — full and partial telemetry, `undetermined` status, gpt-5.6-luna
 
 First live run of the Milestone 5 schema and prompt (`status`, `unobserved_dependency` evidence).
-Recorded 2026-10-01. Run with the one-off OpenAI script from
+Run on 2026-09-30. Run with the one-off OpenAI script from
 [manual-evaluation.md](manual-evaluation.md) (outside the repository), model `gpt-5.6-luna`
 (present in the account's `/v1/models` response). Scenario: payment latency fault injected,
 checkout traffic sent, both cases built from one time window and run through the unchanged
