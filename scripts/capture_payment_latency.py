@@ -148,7 +148,7 @@ def cmd_capture(args: argparse.Namespace) -> int:
                 print(" -", problem)
             return 2
         fault = _fault_status(args)
-        print("payment fault status now:", fault)
+        print(f"{args.fault_service} fault status now:", fault)
         raw = _record_live(args, start, end)
 
     commit, dirty = _git_state(out)

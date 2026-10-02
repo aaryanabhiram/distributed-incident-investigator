@@ -334,11 +334,11 @@ available usage, and is `null` otherwise or when cache tokens are non-zero. `res
 commit, code revision, per-scenario payload and prompt hashes), the run configuration and request
 semantics, every run and a counts-only summary (`scored_runs` excludes `unscored`,
 `contract_failure` and `provider_failure`; no rates). No credentials, headers or response bodies
-are written. Offline tests use mocked transports and a throwaway Git repository; the one live run (Evaluation 8,
-`gpt-5.6-luna`, 18 runs, no provider failure) is recorded in
+are written. Offline tests use mocked transports and a throwaway Git repository; the two live runs (Evaluations 8 and 9,
+`gpt-5.6-luna`, 30 runs, no provider failure) are recorded in
 [investigator-evaluation-history.md](investigator-evaluation-history.md).
 
-**Scenarios and capture (run live once, Evaluation 8; `shared/evaluation/scenarios.py`,
+**Scenarios and capture (run live: Evaluation 8 for S1-S3, Evaluation 9 for S4-S5; `shared/evaluation/scenarios.py`,
 `scripts/capture_payment_latency.py`).** Three scenarios come from one payment-latency capture:
 S1 full telemetry (correctness `unscored`: no span durations or self-time, and a leaf does not
 establish causal origin), S2 the same window with the PromQL restricted to gateway and order

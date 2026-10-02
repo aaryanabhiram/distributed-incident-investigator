@@ -289,3 +289,81 @@ General LLM or rule-based root-cause ability; behaviour on other topologies, fau
 accuracy or error rates (three scenarios from one capture, five repeats); calibrated confidence;
 that the S1 abstentions or the single S1 identification are correct; the effect of the unsent
 reasoning or sampling settings; or cost (no prices supplied).
+
+## Evaluation 9 — order-service fault: a scored identification case, `chain-v1` vs `gpt-5.6-luna`
+
+Run on 2026-10-02. Same caveats as Evaluation 8: observations on one capture of one stack, not a
+benchmark. Raw records: `captures/results/run-order-1/results.json` and `runs.jsonl`.
+
+### Why this exists
+
+Evaluation 8 had no scenario that expected an identification, so both investigators "passed" the
+scored cases by abstaining. This run adds one: a latency fault in the **order** service
+(`shared/fault_injection` mounted on order for this purpose), where payment stays observed and
+healthy, so the evidence supports naming order. The `chain-v1` rules, the prompt, the schema and
+the scoring were not changed (their registered hashes are the same as in Evaluation 8).
+
+### Setup
+
+- Capture `captures/order-latency-1`, frozen, manifest SHA-256
+  `d962f88db36ad7d753d3845f013891beeefb3c0510a0bbceac1443cf9982e350`, made from code commit
+  `2f70aed97ab34c6bd02264ce09a1e5c209343efd`; the capture and results were committed after it
+  (`a0d3185`, `112ddf4`) touching only `captures/`.
+- Live incident: order latency fault, 1500 ms for 120 s, armed 07:47:42Z, 12 checkouts (after 8
+  warm-up requests, which dilute the 5-minute mean); window 07:43:19Z to 07:48:19Z; threshold
+  500 ms (demonstration value). Jaeger returned its cap of 100 traces with all relationships
+  present. The fault evidence is operator-saved; "order" is declared by procedure (the POST went to
+  order's admin port).
+- S4 (full telemetry, expected `identified`, origin `order`): gateway 917.2 ms and order 910.1 ms
+  anomalous, payment observed and not anomalous, edges gateway -> order and order -> payment.
+  Gold evidence: the order anomaly and the order -> payment relationship.
+- S5 (PromQL restricted to gateway and order, expected `undetermined`): the same anomalies and
+  edges, payment unobserved, one unobserved dependency (order -> payment).
+- Runs: `chain-v1` once and `gpt-5.6-luna` five times per scenario (12 runs, 10 provider requests,
+  no retry), the same request configuration as Evaluation 8 (OpenAI Responses API,
+  `max_output_tokens` 4000, no sampling or reasoning setting sent). No provider or contract
+  failures.
+
+### Observed results
+
+| | S4 (expect `identified` order) | S5 (expect `undetermined`) |
+|---|---|---|
+| `chain-v1` | identified order: correct | `undetermined`: appropriate abstention |
+| `gpt-5.6-luna`, 5 runs | identified order in 5 of 5: correct (confidence 0.68-0.80) | `undetermined` in 5 of 5: appropriate abstention (0.93-0.96) |
+
+- Outcome counts: deterministic 1 correct identification + 1 appropriate abstention; LLM 5 correct
+  identifications + 5 appropriate abstentions. No false attribution, unsupported attribution,
+  over-abstention, contract failure or provider failure.
+- The LLM's answer followed the evidence: with payment measured and healthy it named order in every
+  run (explaining that payment "has no listed anomaly"), and with payment unobserved it abstained in
+  every run, naming gateway, order and the unobserved payment as indistinguishable. Same incident,
+  same anomalies, same edges; only payment's coverage differed.
+- Evidence (against the two-item S4 gold set): all citations valid (1.0). `chain-v1` cited every
+  anomaly and relationship (precision 0.5, recall 1.0). The LLM's S4 precision was 0.33-0.5 and
+  recall 1.0 in two runs and 0.5 in three: in those runs it did not cite the order -> payment
+  relationship it relied on. On S5 recall was 1.0 except one run (0.67) and precision 0.5-0.6.
+- Confidence: `chain-v1` 0.5 (a fixed placeholder). The LLM was less confident when identifying
+  (0.68-0.80) than when abstaining (0.93-0.96). Not scored; it is the model's own number.
+- Runtime: `chain-v1` tens of microseconds. LLM calls 5.2-7.2 s on S4 and 3.1-3.7 s on S5. Provider
+  reported tokens: 13,270 input, 3,561 output (2,333 of them reasoning, counted inside the output).
+  No prices supplied, so cost is `null`.
+
+### Reading (interpretation)
+
+- This is the first scored identification: the LLM did not over-abstain here. Together with
+  Evaluation 8, `gpt-5.6-luna` abstained when the evidence left a callee unmeasured or the origin
+  ambiguous (S2, S3, and 4 of 5 on S1) and committed when a callee was measured healthy (S4), the
+  distinction the deterministic rules draw.
+- It is not evidence that the LLM is as good as the rules in general. The S4 label rests on the same
+  reasoning as `chain-v1` (a callee measured healthy leaves the caller as origin), so `chain-v1`
+  was expected to be right by construction. What was open, and is observed here, is only whether the
+  model reaches the same call from the same evidence, which it did in 5 of 5 runs.
+- The two investigators diverge only on the unscored S1: `chain-v1` credits a leaf by topology and
+  the LLM mostly declines to. Which is preferable is a judgement this data cannot settle.
+
+### What this result does not establish
+
+Everything listed for Evaluation 8, and in addition: that the S4 label is independent of the rules
+that were checked against it (it is not; a co-fault in gateway is not excluded); behaviour on error
+faults, other services or other topologies; stability beyond five repeats of one capture; or that
+citing fewer or different evidence items than the gold set is a defect.

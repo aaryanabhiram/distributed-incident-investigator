@@ -119,10 +119,31 @@ such callees (unknown health, no causal claim). The payload cannot say why a val
 `undetermined` status; Evaluations 1–7 predate `origin_service`) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
 Evaluation 7 ran the `undetermined` schema live once per case (full and partial telemetry): both
 returned valid `undetermined` hypotheses with valid evidence, and no defect was found; it is two
-anecdotes, not evidence of accuracy or calibrated confidence. The deterministic-vs-LLM comparison ran once (Evaluation 8: both abstained on the two scored
-scenarios; on the unscored full-telemetry case `chain-v1` named payment and the LLM abstained in 4 of
+anecdotes, not evidence of accuracy or calibrated confidence. The deterministic-vs-LLM comparison ran twice (Evaluation 8: both abstained on the two scored
+scenarios; Evaluation 9: both identified the order fault and abstained without payment's telemetry; on the unscored full-telemetry case `chain-v1` named payment and the LLM abstained in 4 of
 5 runs; not a benchmark, not a blind comparison). The manual, user-run procedure is in
 [docs/manual-evaluation.md](docs/manual-evaluation.md).
+
+## Results at a glance
+
+Two live experiments on this stack (full detail, limits and a non-blind-authorship disclosure in
+[docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md), Evaluations 8
+and 9). A frozen rule-based investigator (`chain-v1`) and a single-call `gpt-5.6-luna` investigator
+received byte-identical frozen evidence from real Prometheus/Jaeger data; labels were hidden until
+scoring; every run was recorded.
+
+| Scenario (real fault, real telemetry) | Expected | `chain-v1` | `gpt-5.6-luna` x5 |
+|---|---|---|---|
+| Order latency fault, payment measured healthy | identify `order` | identified | identified in 5/5 |
+| Same window, payment telemetry removed | abstain | abstained | abstained 5/5 |
+| Payment latency fault, restricted telemetry | abstain | abstained | abstained 5/5 |
+| Same fault, relationships deleted (ablation) | abstain | abstained | abstained 5/5 |
+| Payment latency fault, full telemetry (unscored) | no label | identified `payment` | abstained 4/5, `payment` 1/5 |
+
+No false attributions, over-abstentions, contract or provider failures; roughly 3-7 s and ~1.3k
+input tokens per LLM call. Three to five scenarios from two captures is not a benchmark: it shows
+that the model's answer tracked what the evidence contained, not that it generalizes. The scored
+identification label shares its reasoning with the rules, so the rules were right by construction.
 
 ## Getting started
 
