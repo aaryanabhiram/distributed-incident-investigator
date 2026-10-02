@@ -1,277 +1,112 @@
 # Distributed Incident Investigator
 
-A small, observable distributed system built to practice and demonstrate a specific skill:
-turning raw telemetry from a multi-service system into a structured, evidence-backed
-incident hypothesis — first deterministically, then with an LLM reasoning over the
-deterministic system's output.
+A small checkout system (gateway, order, payment) with real telemetry and fault injection, plus a
+harness that compares a rule-based incident investigator with an LLM on the same evidence.
 
-This is a portfolio engineering project. It favors a design that one developer can fully
-explain in an interview over one that looks impressive on paper.
+I built it to answer one narrow question: given the same structured evidence about an incident,
+does an LLM make the call the evidence supports, or does it guess? The rules and the model both read
+a fixed, bounded summary of what Prometheus and Jaeger recorded, never raw telemetry.
 
-## What it does (end state)
+## What I found
 
-- Several simple services call each other over HTTP, producing realistic multi-service
-  traffic.
-- Each service emits logs, metrics, and traces via OpenTelemetry.
-- Controlled faults (latency, errors, resource pressure) can be injected into a service on
-  demand.
-- A deterministic correlation layer watches telemetry, detects anomalies, and identifies
-  which services and relationships are implicated in an incident — no LLM involved at this
-  stage.
-- That correlation output is packaged into a bounded, structured "incident context."
-- An LLM investigator reads that incident context (not raw telemetry) and produces a
-  structured root-cause hypothesis with supporting evidence, citing what it based the
-  hypothesis on.
+Two live experiments on this stack, comparing a hand-written rule set (`chain-v1`) with
+`gpt-5.6-luna`. Each model scenario was run 5 times; the rules are deterministic, so once.
 
-The dividing line is deliberate: **detection and correlation are deterministic and testable
-without an LLM. The LLM only reasons over evidence the deterministic system already
-produced.**
-
-## Architecture at a glance
-
-```
- client
-   │
-   ▼
- gateway service ──► downstream service(s)
-   │                        │
-   └───────────┬────────────┘
-               ▼
-     telemetry (logs/metrics/traces)
-               │
-               ▼
-   deterministic correlation engine
-               │
-               ▼
-      structured incident context
-               │
-               ▼
-        LLM investigator
-               │
-               ▼
-   root-cause hypothesis + evidence
-```
-
-See [docs/architecture.md](docs/architecture.md) for the full design, including system
-boundaries, planned services, telemetry flow, the fault-injection boundary, and explicit
-non-goals.
-
-## Technology
-
-- **FastAPI** — service framework
-- **PostgreSQL** — persistent state, once a service actually needs it
-- **Docker Compose** — local orchestration
-- **OpenTelemetry** — traces, logs, and metrics instrumentation
-- **Prometheus** — metrics storage
-- **Grafana** — visualization
-
-No Kafka, Kubernetes, Redis, vector databases, or agent frameworks — see
-[docs/architecture.md](docs/architecture.md#non-goals-and-complexity-constraints) for why.
-
-## Repository layout
-
-```
-services/       Independently runnable FastAPI services
-shared/         Shared library code (telemetry, correlation, fault hooks, investigators, offline evaluation)
-scripts/        Manually invoked helper scripts (scenario capture); never run by tests or CI
-docs/           Architecture and design documentation
-tests/          Tests
-```
-
-## Status
-
-**Telemetry.** Three real services — `gateway`, `order`, and `payment` — talk to each other
-over plain HTTP: `gateway → order → payment`. Each is instrumented with OpenTelemetry (traces,
-metrics, structured logs) via a shared setup in `shared/telemetry/`, and the whole chain runs
-together with a local observability stack (Jaeger, Prometheus, Grafana) under Docker Compose.
-
-**Fault injection.** The `payment` and `order` services can be made to add latency or return errors on
-demand (`shared/fault_injection/`); injected faults show up in telemetry like real problems.
-
-**Correlation (implemented; thresholds are fixture/demo policy, not production alerting policy; log evidence is not implemented).** `shared/correlation/` is a network-free deterministic core:
-threshold anomaly detection, service relationships derived from cross-service parent/child
-spans, and a bounded `IncidentContext`. `shared/correlation/adapters.py` converts Prometheus
-instant-query and Jaeger trace JSON into the core's typed inputs, and
-`shared/correlation/fetch.py` fetches that JSON over HTTP (`httpx`).
-`shared/correlation/runner.py` (`run_correlation`) ties these together for a supplied time
-window: fetch → detect → correlate → `IncidentContext`, with the query, rules and clients passed
-in explicitly. Unit tests use mocked HTTP and, additionally, real Prometheus/Jaeger payloads captured from the
-Compose stack (`tests/fixtures/backends/`, provenance in its README); the evaluation PromQL is
-committed in `shared/correlation/queries.py` (reconstructed from the evaluation history). `shared/correlation/handoff.py`
-converts an `IncidentContext` to/from a JSON-safe dict — the boundary the investigator
-consumes. `shared/investigator/` defines the investigator contract (`InvestigatorInput` →
-`Hypothesis` with status `identified`/`undetermined`, a structured `origin_service` (required when identified, null when undetermined, checked against the input's services), root cause, confidence and evidence references), a deterministic rule-based investigator (`deterministic.py`, frozen rule set `chain-v1`, written only for the gateway → order → payment chain; it abstains rather than guess) and one LLM-backed executor
-(`llm.py`, with Anthropic Messages API and OpenAI Responses API transports in `anthropic.py` and
-`openai.py`): a single bounded call whose output is validated, never repaired. It needs
-`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` or `OPENAI_API_KEY`/`OPENAI_MODEL`; tests use a mock and make
-no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
-provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. That smoke test used a temporary script; the in-repo OpenAI adapter was later run live in Evaluation 8 (15 requests, `gpt-5.6-luna`), and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
-orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`,
-or, with no anomaly, no investigator call: `NoIncident` only if every declared service was observed, otherwise `NoObservation` (empty, NaN or undeclared telemetry is never read as health). `shared/evaluation/`
-scores investigator results offline against scenario expectations (an `unscored` expectation is
-never counted as correct, incorrect or abstention, and a provider refusal, token limit or
-transport error is a separate non-scored `provider_failure` event) and prepares the payment-latency scenarios;
-`scripts/run_experiment.py` runs the registered comparison on a frozen capture (deterministic once, LLM five times per scenario, every run and provider failure recorded with timing and provider-reported token usage; run once live with OpenAI `gpt-5.6-luna`: Evaluation 8, in the evaluation history). `scripts/capture_payment_latency.py` is the manually invoked capture (run live once for Evaluation 8; it needs saved fault-injection evidence, and `verify`/`--freeze` re-derive and hash everything so edited labels are detected).
-`IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed`,
-`undefined` (a `NaN` series) or `unobserved` (no series) (set via `run_correlation(services=...)`), so
-"no anomaly" is distinguishable from "not measured"; `unobserved_dependencies` lists anomalous callers of
-such callees (unknown health, no causal claim). The payload cannot say why a value is missing. One-off live evaluations of the investigator (observations, not a benchmark; Evaluations 1–6 predate the
-`undetermined` status; Evaluations 1–7 predate `origin_service`) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
-Evaluation 7 ran the `undetermined` schema live once per case (full and partial telemetry): both
-returned valid `undetermined` hypotheses with valid evidence, and no defect was found; it is two
-anecdotes, not evidence of accuracy or calibrated confidence. The deterministic-vs-LLM comparison ran twice (Evaluation 8: both abstained on the two scored
-scenarios; Evaluation 9: both identified the order fault and abstained without payment's telemetry; on the unscored full-telemetry case `chain-v1` named payment and the LLM abstained in 4 of
-5 runs; not a benchmark, not a blind comparison). The manual, user-run procedure is in
-[docs/manual-evaluation.md](docs/manual-evaluation.md).
-
-## Results at a glance
-
-Two live experiments on this stack (full detail, limits and a non-blind-authorship disclosure in
-[docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md), Evaluations 8
-and 9). A frozen rule-based investigator (`chain-v1`) and a single-call `gpt-5.6-luna` investigator
-received byte-identical frozen evidence from real Prometheus/Jaeger data; labels were hidden until
-scoring; every run was recorded.
-
-| Scenario (real fault, real telemetry) | Expected | `chain-v1` | `gpt-5.6-luna` x5 |
+| Scenario (real fault, real telemetry) | Correct answer | Rules | Model (5 runs) |
 |---|---|---|---|
-| Order latency fault, payment measured healthy | identify `order` | identified | identified in 5/5 |
-| Same window, payment telemetry removed | abstain | abstained | abstained 5/5 |
-| Payment latency fault, restricted telemetry | abstain | abstained | abstained 5/5 |
-| Same fault, relationships deleted (ablation) | abstain | abstained | abstained 5/5 |
-| Payment latency fault, full telemetry (unscored) | no label | identified `payment` | abstained 4/5, `payment` 1/5 |
+| Latency fault in `order`, payment measured healthy | name `order` | named it | named it 5/5 |
+| Same incident, payment's telemetry removed | say "can't tell" | said so | said so 5/5 |
+| Latency fault in `payment`, telemetry restricted | say "can't tell" | said so | said so 5/5 |
+| Same fault, call relationships deleted | say "can't tell" | said so | said so 5/5 |
+| Latency fault in `payment`, full telemetry | no agreed answer | named `payment` | "can't tell" 4/5, `payment` 1/5 |
 
-No false attributions, over-abstentions, contract or provider failures; roughly 3-7 s and ~1.3k
-input tokens per LLM call. Three to five scenarios from two captures is not a benchmark: it shows
-that the model's answer tracked what the evidence contained, not that it generalizes. The scored
-identification label shares its reasoning with the rules, so the rules were right by construction.
+The model named a service when the evidence supported one and declined when it didn't. There were
+no wrong attributions and no failed requests.
 
-## Getting started
+This is a small experiment, not a benchmark. Three to five scenarios from two captures cannot
+support accuracy claims. The "name `order`" case was labeled using the same reasoning as the rules,
+so the rules are right by construction; what the run shows is that the model reached the same call
+from the same evidence. The rules and the prompt were also written after I had seen earlier model
+outputs on this kind of incident, so the comparison is not blind. Full write-up and limits:
+[docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md) (Evaluations 8
+and 9).
+
+## How it works
+
+```
+client -> gateway -> order -> payment          (plain HTTP, FastAPI)
+              |
+   OpenTelemetry: traces -> Jaeger, metrics -> Prometheus
+              |
+   correlation: find slow services, which service calls which, and which are unmeasured
+              |
+   incident context  (a small typed record: the only thing investigators see)
+        /                         \
+  rule-based investigator      LLM investigator (one call, no tools)
+        \                         /
+   scoring against labels kept in a separate file, applied after the answer
+```
+
+- `payment` and `order` can be made slow or failing on demand, so incidents are real, not simulated
+  in the data.
+- A capture step saves the raw Prometheus and Jaeger responses, builds the evidence, and hashes it.
+  The prompt, the response schema, the rule code and the provider settings are hashed too, and the
+  run refuses to start if any of them changed after the capture was frozen.
+- Investigators may answer "undetermined". A missing measurement is never read as a healthy
+  service.
+- Labels and the injected cause never reach an investigator; they are used only for scoring.
+- Every run is stored, including provider failures, which are kept separate from scores.
+
+Design details are in [docs/architecture.md](docs/architecture.md).
+
+## Run it
+
+Requires Python 3.10+ and Docker.
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate       # Windows
+.venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
-pytest
+pytest                          # 436 offline tests, no network, no API key
 ```
 
-### Running the services locally (outside Docker)
-
-Each service is independently runnable with uvicorn. Start them in three terminals, innermost
-first, pointing each caller at the next service's URL via environment variable:
+Start the services and the observability stack:
 
 ```bash
-uvicorn services.payment.main:app --port 8002
-
-PAYMENT_SERVICE_URL=http://127.0.0.1:8002 uvicorn services.order.main:app --port 8001
-
-ORDER_SERVICE_URL=http://127.0.0.1:8001 uvicorn services.gateway.main:app --port 8000
-```
-
-Then exercise the full chain:
-
-```bash
-curl -X POST http://127.0.0.1:8000/checkout \
-  -H "Content-Type: application/json" \
+docker compose up --build
+curl -X POST http://127.0.0.1:8000/checkout -H "Content-Type: application/json" \
   -d '{"item": "widget", "amount": 25.0}'
 ```
 
-Each service also exposes `GET /health`, e.g.
-[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
+Then look at traces in Jaeger (http://localhost:16686), metrics in Prometheus
+(http://localhost:9090) and the provisioned dashboard in Grafana (http://localhost:3000). All ports
+bind to `127.0.0.1` only, because the fault endpoints and Grafana's admin are unauthenticated.
 
-### Running with Docker Compose
-
-```bash
-docker compose up --build
-```
-
-This builds and runs `gateway` (port 8000), `order` (port 8001), and `payment` (port 8002),
-wired together via compose service names, with health checks gating startup order. It also
-starts the local observability stack: Jaeger, Prometheus, and Grafana (see below).
-
-## Telemetry and local observability stack
-
-Each service calls `shared/telemetry.setup_telemetry(app, service_name)` at startup, which
-configures:
-
-- **Traces** — OpenTelemetry auto-instrumentation of FastAPI and outgoing `httpx` calls,
-  exported via OTLP/gRPC to the endpoint in `OTEL_EXPORTER_OTLP_ENDPOINT` (defaults to
-  `http://localhost:4317`, i.e. a locally running Jaeger). A single checkout request produces
-  one connected trace spanning `gateway → order → payment`.
-- **Metrics** — an OpenTelemetry Prometheus reader exposed at `GET /metrics` on each service.
-  Includes `http_server_duration_milliseconds` (a histogram, giving request count and latency
-  together, labeled by route and status code) and `http_server_active_requests`.
-- **Logs** — structured JSON to stdout, one line per log record, including `service`,
-  `trace_id`, and `span_id` so a log line can be tied back to the trace and service that
-  produced it. Uvicorn's own access/error logs are routed through the same formatter.
-
-Trace/metric export endpoints are read from environment variables at startup
-(`OTEL_EXPORTER_OTLP_ENDPOINT`), so the same code runs unchanged locally or in Docker Compose
-— only the endpoint differs (compose points it at the `jaeger` service).
-
-### Starting the stack
+Inject a fault into a service, for example 1.5 s of added latency in `order` for two minutes:
 
 ```bash
-docker compose up --build
+curl -X POST localhost:8001/admin/fault -H "Content-Type: application/json" \
+  -d '{"mode": "latency", "duration_seconds": 120, "latency_ms": 1500}'
 ```
 
-Then exercise the checkout path (see above) and inspect. The Compose file binds all
-published ports to `127.0.0.1` only, since the fault-injection endpoint and Grafana's anonymous
-admin are unauthenticated. A stack started before this change keeps its old bindings until it is
-recreated (`docker compose up -d`):
+Capturing evidence and running the comparison is a manual, paid-API procedure, described step by
+step in [docs/manual-evaluation.md](docs/manual-evaluation.md). Tests and CI never call a model.
 
-- **Jaeger UI** — [http://localhost:16686](http://localhost:16686) — pick service `gateway`,
-  operation `POST /checkout`, to see the full cross-service trace.
-- **Prometheus** — [http://localhost:9090](http://localhost:9090) — targets page shows all
-  three services being scraped; try the query
-  `sum by (service) (rate(http_server_duration_milliseconds_count[1m]))`.
-- **Grafana** — [http://localhost:3000](http://localhost:3000) (anonymous admin access) — the
-  "Incident Investigator - Service Overview" dashboard is provisioned automatically, with
-  request rate, p95 latency, error rate, and active requests, all broken out by service.
-- **Logs** — `docker compose logs -f gateway order payment` — structured JSON lines
-  correlated by `trace_id`.
-
-### Why Jaeger (and not something else) for traces
-
-Jaeger is a single container with an OTLP receiver and its own UI, which is the smallest
-footprint that gives real, inspectable distributed traces locally — no extra collector process
-or trace-storage backend to configure. Grafana is also wired to Jaeger as a datasource so
-traces can be explored from the same place as metrics.
-
-## Request flow
+## Layout
 
 ```
-client
-  │  POST /checkout {item, amount}
-  ▼
-gateway
-  │  POST /orders {item, amount}
-  ▼
-order            (generates order_id)
-  │  POST /charge {order_id, amount}
-  ▼
-payment          (approves if amount > 0, else declines — deterministic, no randomness)
+services/   gateway, order, payment (FastAPI)
+shared/     telemetry setup, fault injection, correlation, investigators, evaluation
+scripts/    capture_payment_latency.py (build evidence), run_experiment.py (run the comparison)
+docs/       architecture, evaluation history, manual procedure
+tests/      offline tests and real captured backend payloads
 ```
 
-The response (order id, item, amount, payment status) flows back up through order and gateway
-to the client. If a downstream service is unreachable or errors, the caller returns `502` with
-a message identifying which downstream call failed, so the failure is visible at every hop
-rather than swallowed.
+## Limits
 
-## Planned milestones
-
-1. **Foundation** (done) — repo structure, tooling, docs, one health-checkable service.
-2. **Multi-service system** (done) — `gateway`, `order`, and `payment` with real inter-service
-   HTTP calls, running independently or together under Docker Compose.
-3. **Telemetry** (done) — instrument all services with OpenTelemetry (traces, metrics,
-   logs); Prometheus + Grafana + Jaeger wired up locally.
-4. **Fault injection** (done) — a controlled, explicit boundary for injecting latency/errors
-   into a service.
-5. **Deterministic correlation** (done: core, payload adapters, HTTP fetchers, window runner and
-   coverage semantics; validated once against the live stack; thresholds are fixture/demo policy and
-   log evidence is not implemented) — analyze telemetry to identify affected services and
-   relationships during an incident; build the structured incident context.
-6. **LLM investigator** (contract, Anthropic- and OpenAI-backed executors and correlate→investigate entry point done; boundary smoke-tested once via a temporary OpenAI function; shipped transports not run live; `undetermined` behavior observed live in two cases (Evaluation 7); not scheduled) — LLM reasons over the incident context to produce a root-cause
-   hypothesis with cited evidence.
-7. **Dashboard** (not built) — visualize services, incidents, and hypotheses.
-
-Each milestone is implemented and reviewed on its own; later milestones are not started early.
+- One three-service chain, latency faults only in the experiments, one model, two captures.
+- The rules are written for this exact chain and abstain on anything else.
+- Anomaly thresholds are demonstration values, not alerting policy, and logs are not part of the
+  evidence.
+- The Anthropic adapter exists but has never been run against the real API.
+- No dashboard or UI for the investigator's output.
