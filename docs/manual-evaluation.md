@@ -19,7 +19,7 @@ existing `CompleteFn(Prompt, json_schema) -> raw JSON text` seam, to the unchang
 `unobserved_dependency` evidence (Milestone 5) were exercised live with this script on
 `gpt-5.6-luna`; see Evaluation 7 in the history file. Evaluations 1–6 predate this schema and
 prompt and are not comparable to it as-is. One run per case is an anecdote. The shipped
-shipped transports (Anthropic, and the in-repo OpenAI adapter) had not made a live request.
+the shipped transports had not made a live request. (Evaluation 8 later ran the in-repo OpenAI adapter live; the Anthropic transport still has not.)
 
 ## Query provenance
 
@@ -328,7 +328,7 @@ One run per case is an anecdote, not a benchmark.
 
 ## Capturing scenarios for the investigator comparison (S1-S3)
 
-Prepared, not yet run. This captures a *new* payment-latency incident (the Evaluation 7 payloads
+Run once (Evaluation 8, capture `payment-latency-1`). This captures a *new* payment-latency incident (the Evaluation 7 payloads
 were never saved, and the committed 2026-09-30 backend fixtures are offline smoke data only: they
 are not Evaluation 7 and not a live capture). It calls no model. It only reads the stack: leave
 Compose running, and do not run `docker compose up`, `build`, `restart` or `down` (Prometheus and
@@ -407,7 +407,7 @@ says so (`capture.injection.attribution`).
 
 ## Running the comparison (after a frozen capture)
 
-Prepared, not yet run, and it makes paid requests: up to scenarios x 5 = 15 requests to the
+Run once (Evaluation 8, `results/run-1`); it makes paid requests: up to scenarios x 5 = 15 requests to the
 registered model (the deterministic baseline makes none). Only the registered provider's key
 (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) is read from the environment. The model and endpoint come
 from the registration; that provider's model or base-URL variable (`OPENAI_MODEL`/`OPENAI_BASE_URL`,

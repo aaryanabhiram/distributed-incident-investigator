@@ -188,7 +188,7 @@ cleared afterwards. Anomaly values were not printed and are not recorded here.
   or any advantage over a deterministic baseline. Each case is a single run on a single-fault
   chain from one stack.
 
-## Planned next experiment (future work, not a result)
+## Planned next experiment (superseded by Evaluation 8 below; kept as written)
 
 Status update: the deterministic investigator (`shared/investigator/deterministic.py`, frozen rule
 set `chain-v1`), the structured `origin_service` field and the offline scoring module
@@ -203,3 +203,89 @@ Measures to record per investigator: correct identification, false attribution (
 origin), abstention (`undetermined`) and whether it was appropriate, evidence-reference validity
 and relevance, runtime, and API cost (deterministic: none). Any claim about relative performance
 waits for that comparison; this entry's single runs do not support one.
+
+## Evaluation 8 — deterministic `chain-v1` vs one-call `gpt-5.6-luna` on identical frozen evidence
+
+Run on 2026-10-02. Observations on one capture of one stack, **not a benchmark and not validated
+RCA performance**. Raw records: `captures/results/run-1/results.json` and `runs.jsonl`.
+
+### Setup (what was registered and run)
+
+- Capture `captures/payment-latency-1`, frozen, manifest SHA-256
+  `7ffeb7070a9c41687a991ff8286a83fa8dabf914a4e971eb25e89e5b57a6cce5`. Made and run from code
+  commit `d8e3acfc86d3a2be45f7df2a2f05c26df7892cb2`; the capture and results were committed after
+  it (`007e815`, `58564a1`) and only touched `captures/`. `verify` passes.
+- Live incident: payment latency fault, 1500 ms for 120 s, armed 07:28:01Z, 12 checkouts; window
+  07:23:38Z to 07:28:38Z (5 min), threshold 500 ms (demonstration value). Jaeger returned 100
+  traces, which is its cap, but all relationships were present in the captured context. The fault
+  evidence is operator-saved; the response carries no service name, so "payment" is declared by
+  procedure (the POST went to payment's admin port), not independently proven.
+- Scenarios: S1 full telemetry (live; gateway 1517.5, order 1510.6, payment 1502.7 ms; edges
+  gateway -> order, order -> payment; correctness **unscored**); S2 the same window with the PromQL
+  restricted to gateway and order, so payment is unobserved (live telemetry under a restricted
+  query; gateway 1517.5, order 1510.6; one unobserved dependency order -> payment; expected
+  `undetermined`); S3 S1 with relationships deleted (a controlled ablation, not produced by the
+  pipeline; expected `undetermined`).
+- Investigators: `chain-v1` once per scenario (no request), and the unchanged `LLMInvestigator`
+  five times per scenario, every run recorded separately: 3 + 15 = 18 runs, 15 provider requests,
+  no retry. Both received the same `InvestigatorInput`; the labels live only in the manifest.
+- Provider: OpenAI Responses API through `shared/investigator/openai.py`, model `gpt-5.6-luna`
+  (each response named `gpt-5.6-luna`). Request: `max_output_tokens` 4000, `store` false, strict
+  schema; no temperature, `top_p` or reasoning setting was sent, so provider defaults applied (their
+  values are not recorded). The rendered prompt and the schema were hash-checked before every
+  request. The adapter's live acceptance of the schema was exercised by an operator-run smoke test
+  before the capture; the 15 experiment requests then all completed.
+
+### Observed results
+
+| | S1 (unscored) | S2 (expect `undetermined`) | S3 (expect `undetermined`) |
+|---|---|---|---|
+| `chain-v1` | identified **payment** | `undetermined` (appropriate abstention) | `undetermined` (appropriate abstention) |
+| `gpt-5.6-luna`, 5 runs | `undetermined` x4 (confidence 0.92-0.96); identified **payment** x1 (0.72) | `undetermined` x5 (0.93-0.95) | `undetermined` x5 (0.98-0.99) |
+
+- Outcome counts: deterministic 2 appropriate abstentions + 1 unscored; LLM 10 appropriate
+  abstentions + 5 unscored. No correct identification, false attribution, unsupported attribution,
+  over-abstention, contract failure or provider failure occurred (none was possible to score as
+  "identification": no scenario expects `identified`).
+- S1, descriptive only: `chain-v1` named the injected service (`matches_injected_cause` true), as
+  its rules do for any anomalous leaf with anomalous ancestors. The LLM abstained in 4 of 5 runs and
+  named payment in 1. Because S1 has no correctness label, neither is "right" or "wrong" here; the
+  rules credit a leaf by topology alone, the LLM's abstentions reflect that the context has no span
+  durations or self-time.
+- Evidence: every citation was valid in all 18 runs (validity 1.0). Against the gold sets,
+  relevance recall was 1.0 everywhere scored; precision was 1.0 on S3 for both, and on S2 0.6 for
+  `chain-v1` and for four LLM runs (0.75 for one), because both cite more than the minimal gold set.
+- Confidence: `chain-v1` reports a fixed placeholder (0.5). The LLM reported 0.92-0.99 when
+  abstaining and 0.72 when it identified. Confidence is not scored and is the model's own number.
+- Runtime: `chain-v1` took tens of microseconds in total. Each LLM call took 2.7-5.7 s (55.5 s for
+  15). Tokens reported by the provider: 20,340 input, 3,485 output (1,630 of them reasoning
+  tokens, counted inside the output). No prices were supplied, so cost is `null`.
+
+### Reading (interpretation)
+
+- On S2 and S3 both investigators abstained every time. That is the expected behaviour, but it is
+  weak evidence for the LLM and none against `chain-v1`: the rules abstain on those inputs by
+  construction (an unknown callee blocks attribution; a missing edge is an unconfirmed edge).
+- The only difference visible in this capture is S1, where the two diverge, and S1 is deliberately
+  unscored.
+- Nothing here shows that either is better. The scored scenarios test abstention only.
+
+### Disclosure: this is not a blind comparison
+
+- Evaluations 1-7 (2026-09-30) showed `gpt-5.6-luna` outputs on this same incident family before
+  the `chain-v1` rules existed in the repository (`deterministic.py` first appears in the evaluation
+  runner commit, 2026-10-01). "Frozen before this comparison" is true; "written without having seen
+  the LLM's outputs" is not.
+- The LLM system prompt was revised after Evaluations 1, 5 and 6, i.e. in response to observed
+  failures on this incident family (relationship direction, unobserved services, the `undetermined`
+  status). The S2 scenario is the partial-observability case that prompt change targeted.
+- The scenario labels were written after those observations. They were registered before this
+  capture and run, and neither the rules, the prompt, the scoring nor the labels were changed after
+  the results were seen.
+
+### What this result does not establish
+
+General LLM or rule-based root-cause ability; behaviour on other topologies, faults or services;
+accuracy or error rates (three scenarios from one capture, five repeats); calibrated confidence;
+that the S1 abstentions or the single S1 identification are correct; the effect of the unsent
+reasoning or sampling settings; or cost (no prices supplied).

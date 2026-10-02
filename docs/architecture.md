@@ -297,7 +297,7 @@ detail never holds a body, header or URL, and key-shaped text is redacted. Anyth
 adapter must raise `ProviderError` for refusals and similar replies; the shipped Anthropic and
 OpenAI adapters do.
 
-**Experiment runner (built, offline-tested only; `shared/evaluation/runner.py`,
+**Experiment runner (built; run once live with OpenAI in Evaluation 8; `shared/evaluation/runner.py`,
 `scripts/run_experiment.py`).** `check_registration` loads a capture folder and refuses anything
 that is not frozen, verified (everything `verify_manifest` re-derives, including the manifest
 digest), non-smoke, registered for a shipped adapter (Anthropic or OpenAI, `runner.PROVIDERS`) with a
@@ -334,10 +334,11 @@ available usage, and is `null` otherwise or when cache tokens are non-zero. `res
 commit, code revision, per-scenario payload and prompt hashes), the run configuration and request
 semantics, every run and a counts-only summary (`scored_runs` excludes `unscored`,
 `contract_failure` and `provider_failure`; no rates). No credentials, headers or response bodies
-are written. Tested only with mocked transports and a throwaway Git repository: no real provider,
-schema acceptance, latency or token count has been observed.
+are written. Offline tests use mocked transports and a throwaway Git repository; the one live run (Evaluation 8,
+`gpt-5.6-luna`, 18 runs, no provider failure) is recorded in
+[investigator-evaluation-history.md](investigator-evaluation-history.md).
 
-**Scenarios and capture (prepared, not yet run live; `shared/evaluation/scenarios.py`,
+**Scenarios and capture (run live once, Evaluation 8; `shared/evaluation/scenarios.py`,
 `scripts/capture_payment_latency.py`).** Three scenarios come from one payment-latency capture:
 S1 full telemetry (correctness `unscored`: no span durations or self-time, and a leaf does not
 establish causal origin), S2 the same window with the PromQL restricted to gateway and order
@@ -389,8 +390,8 @@ only; errors from either layer propagate. Tested with a fake `Investigator`.
 **Provider status.** The Anthropic transport exists because the first implementation task asked for a
 concrete provider when none had been chosen; the OpenAI transport (`openai.py`) was added so the
 Evaluation 8 comparison can run the experiment with `gpt-5.6-luna`, the model of Evaluation 7. Neither
-is an architectural requirement. Both are offline-tested only (mocked transports); the in-repo OpenAI
-adapter and the Anthropic adapter have not been run live unless the evaluation history says so. The
+is an architectural requirement. Both are unit-tested with mocked transports. The in-repo OpenAI adapter has been run live
+(Evaluation 8, `gpt-5.6-luna`, 15 requests, no provider failure); the Anthropic adapter has not. The
 provider-independent boundary is `CompleteFn(prompt, json_schema) -> raw JSON text`. Live validation to date is a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. That smoke test used a temporary script, not the in-repo adapter; the Anthropic transport has not been run live.
 
 ## Major data flows

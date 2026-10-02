@@ -105,13 +105,13 @@ consumes. `shared/investigator/` defines the investigator contract (`Investigato
 `openai.py`): a single bounded call whose output is validated, never repaired. It needs
 `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` or `OPENAI_API_KEY`/`OPENAI_MODEL`; tests use a mock and make
 no live calls. The Anthropic request shape was checked against the current docs but has not been run live; the
-provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. That smoke test used a temporary script, not the in-repo OpenAI adapter, and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
+provider boundary itself has had a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. That smoke test used a temporary script; the in-repo OpenAI adapter was later run live in Evaluation 8 (15 requests, `gpt-5.6-luna`), and the Anthropic transport has not been run live. `shared/pipeline.py` (`correlate_and_investigate`) is the
 orchestration-only entry point: `run_correlation` → handoff payload → `investigate` → `Hypothesis`,
 or, with no anomaly, no investigator call: `NoIncident` only if every declared service was observed, otherwise `NoObservation` (empty, NaN or undeclared telemetry is never read as health). `shared/evaluation/`
 scores investigator results offline against scenario expectations (an `unscored` expectation is
 never counted as correct, incorrect or abstention, and a provider refusal, token limit or
 transport error is a separate non-scored `provider_failure` event) and prepares the payment-latency scenarios;
-`scripts/run_experiment.py` runs the registered comparison on a frozen capture (deterministic once, LLM five times per scenario, every run and provider failure recorded with timing and provider-reported token usage; offline-tested only, never run live). `scripts/capture_payment_latency.py` is the manually invoked capture (not yet run live; it needs saved fault-injection evidence, and `verify`/`--freeze` re-derive and hash everything so edited labels are detected).
+`scripts/run_experiment.py` runs the registered comparison on a frozen capture (deterministic once, LLM five times per scenario, every run and provider failure recorded with timing and provider-reported token usage; run once live with OpenAI `gpt-5.6-luna`: Evaluation 8, in the evaluation history). `scripts/capture_payment_latency.py` is the manually invoked capture (run live once for Evaluation 8; it needs saved fault-injection evidence, and `verify`/`--freeze` re-derive and hash everything so edited labels are detected).
 `IncidentContext.metric_coverage` records, per service, whether the anomaly metric was `observed`,
 `undefined` (a `NaN` series) or `unobserved` (no series) (set via `run_correlation(services=...)`), so
 "no anomaly" is distinguishable from "not measured"; `unobserved_dependencies` lists anomalous callers of
@@ -119,8 +119,9 @@ such callees (unknown health, no causal claim). The payload cannot say why a val
 `undetermined` status; Evaluations 1–7 predate `origin_service`) are recorded in [docs/investigator-evaluation-history.md](docs/investigator-evaluation-history.md).
 Evaluation 7 ran the `undetermined` schema live once per case (full and partial telemetry): both
 returned valid `undetermined` hypotheses with valid evidence, and no defect was found; it is two
-anecdotes, not evidence of accuracy or calibrated confidence. A deterministic-vs-LLM comparison is
-planned future work, not built. The manual, user-run procedure is in
+anecdotes, not evidence of accuracy or calibrated confidence. The deterministic-vs-LLM comparison ran once (Evaluation 8: both abstained on the two scored
+scenarios; on the unscored full-telemetry case `chain-v1` named payment and the LLM abstained in 4 of
+5 runs; not a benchmark, not a blind comparison). The manual, user-run procedure is in
 [docs/manual-evaluation.md](docs/manual-evaluation.md).
 
 ## Getting started
