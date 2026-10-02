@@ -1,0 +1,129 @@
+{
+  "capture": {
+    "endpoints": {
+      "jaeger": "http://localhost:16686",
+      "prometheus": "http://localhost:9090"
+    },
+    "family": "order",
+    "fault_status_at_capture": {
+      "active": true,
+      "mode": "latency",
+      "seconds_remaining": 81.21846650900034
+    },
+    "injection": {
+      "armed_at": "2026-10-02T07:47:42+00:00",
+      "attribution": "operator-declared: the request was sent to order's admin port; the response carries no service name, so this is not independent proof of which service",
+      "duration_seconds": 120,
+      "evidence_sha256": {
+        "fault-armed-at.txt": "3742db89d44e46fdf47fdec6d28255d62ddaf66ee4c830dcf72aac39c24e0f66",
+        "fault-readback-before-traffic.json": "086b2cf4c68d48bdad30a841577948d3c89c15ea861ed9071010e408e1a005ad",
+        "fault-request.json": "17f3a2ef5b86f3789504f8c56450d47473614fcbbf8af8dce0b5b666622d703a",
+        "fault-response.json": "ab0d826f64b8190f5f7d3cc1759921a324e840f1c757e12ecbf0ac664618c0f2"
+      },
+      "latency_ms": 1500,
+      "mode": "latency",
+      "service": "order"
+    },
+    "jaeger_limit": 100,
+    "jaeger_traces_returned": 100,
+    "metric": "http_server_duration_milliseconds",
+    "mode": "live",
+    "queries": {
+      "full": "sum by (service) (increase(http_server_duration_milliseconds_sum{http_target=~\"/checkout|/orders|/charge\"}[5m])) / sum by (service) (increase(http_server_duration_milliseconds_count{http_target=~\"/checkout|/orders|/charge\"}[5m]))",
+      "restricted": "sum by (service) (increase(http_server_duration_milliseconds_sum{service=~\"gateway|order\",http_target=~\"/checkout|/orders|/charge\"}[5m])) / sum by (service) (increase(http_server_duration_milliseconds_count{service=~\"gateway|order\",http_target=~\"/checkout|/orders|/charge\"}[5m]))"
+    },
+    "raw_sha256": {
+      "jaeger.json": "a03a81cbbc1a8748fe1a187fe7454557757005c1011e2445894654a80759e887",
+      "prometheus_full.json": "6d61286fad86cb5be3459716704251f53871d13c3e54acf7e3ccfccf1aaa232b",
+      "prometheus_restricted.json": "08feb0adacb4619104fd3096756c336a8019d8a750b1789299b9f6bd516ce763"
+    },
+    "services": [
+      "gateway",
+      "order",
+      "payment"
+    ],
+    "threshold_ms": 500.0,
+    "trace_service": "gateway",
+    "window_end": "2026-10-02T07:48:19.420864+00:00",
+    "window_start": "2026-10-02T07:43:19.420864+00:00"
+  },
+  "frozen": true,
+  "frozen_at": "2026-10-02T07:48:37.319568+00:00",
+  "manifest_sha256": "d962f88db36ad7d753d3845f013891beeefb3c0510a0bbceac1443cf9982e350",
+  "manifest_version": 2,
+  "registration": {
+    "deterministic_repeats": 1,
+    "deterministic_ruleset": "chain-v1",
+    "deterministic_source_sha256": "0645d6904f64a90ca76e8e59f4cb15f46ce2e4e39870932deeed46c5936008eb",
+    "git_commit": "2f70aed97ab34c6bd02264ce09a1e5c209343efd",
+    "git_tree_dirty": false,
+    "llm_repeats_planned": 5,
+    "model": "gpt-5.6-luna",
+    "response_schema_sha256": "b177adb1e410b59d6b7e59ba15b1d7e1e1589f389cb80430d6554715ba2b6da7",
+    "system_prompt_sha256": "7fc2a1b822483272e9eafa3c7218eed89bcbe55c950e22b7ff6b3c2dd2d12670",
+    "transport": {
+      "config_sha256": "b92c62492a2b5eb2b07638bf7d2e221fc27ec70c1c493aec8b219dec0de59649",
+      "provider": "openai",
+      "verified_by_repo": true
+    }
+  },
+  "scenarios": [
+    {
+      "expectation": {
+        "case_id": "c-994c0c71b0",
+        "expected_origin": "order",
+        "expected_status": "identified",
+        "gold_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          }
+        ],
+        "injected_cause": "order"
+      },
+      "kind": "live_capture",
+      "notes": "Full telemetry, latency fault in order. Gateway and order are slow and payment is observed and under the threshold, so order's own callee is measured healthy and the evidence supports order as the origin (a co-fault in gateway is not excluded).",
+      "payload_ref": "payloads/c-994c0c71b0.json",
+      "payload_sha256": "994c0c71b02ff192658d1d76a4662b4362aebd5b1400b0cafe80d7f37b38e1d8",
+      "primary_comparison": true,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "scenario_id": "S4",
+      "smoke_test_only": false
+    },
+    {
+      "expectation": {
+        "case_id": "c-617f03f15a",
+        "expected_origin": null,
+        "expected_status": "undetermined",
+        "gold_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ],
+        "injected_cause": "order"
+      },
+      "kind": "live_capture_restricted_query",
+      "notes": "Same window and Jaeger response as S4; PromQL restricted to gateway and order so payment is unobserved. Abstention is justified by the unobserved dependency, not by the injection.",
+      "payload_ref": "payloads/c-617f03f15a.json",
+      "payload_sha256": "617f03f15a6f9d1eeb71895f5d3394eb7271e631f381b8ad66c85f0f0da4a7ec",
+      "primary_comparison": true,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "scenario_id": "S5",
+      "smoke_test_only": false
+    }
+  ],
+  "smoke_test_only": false
+}

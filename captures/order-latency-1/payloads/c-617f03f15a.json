@@ -1,0 +1,59 @@
+{
+  "affected_services": [
+    "gateway",
+    "order"
+  ],
+  "anomalies": [
+    {
+      "metric_name": "http_server_duration_milliseconds",
+      "service": "gateway",
+      "threshold": 500.0,
+      "timestamp": "2026-10-02T07:48:19.421000Z",
+      "value": 917.1500000000001
+    },
+    {
+      "metric_name": "http_server_duration_milliseconds",
+      "service": "order",
+      "threshold": 500.0,
+      "timestamp": "2026-10-02T07:48:19.421000Z",
+      "value": 910.0999999999999
+    }
+  ],
+  "metric_coverage": [
+    {
+      "metric_name": "http_server_duration_milliseconds",
+      "service": "gateway",
+      "status": "observed"
+    },
+    {
+      "metric_name": "http_server_duration_milliseconds",
+      "service": "order",
+      "status": "observed"
+    },
+    {
+      "metric_name": "http_server_duration_milliseconds",
+      "service": "payment",
+      "status": "unobserved"
+    }
+  ],
+  "relationships": [
+    {
+      "callee": "order",
+      "caller": "gateway"
+    },
+    {
+      "callee": "payment",
+      "caller": "order"
+    }
+  ],
+  "unobserved_dependencies": [
+    {
+      "callee": "payment",
+      "callee_status": "unobserved",
+      "caller": "order",
+      "metric_name": "http_server_duration_milliseconds"
+    }
+  ],
+  "window_end": "2026-10-02T07:48:19.420864Z",
+  "window_start": "2026-10-02T07:43:19.420864Z"
+}
