@@ -42,6 +42,7 @@ from shared.evaluation import ScenarioExpectation
 from shared.investigator import EvidenceRef, build_investigator_input
 from shared.investigator import anthropic as anthropic_transport
 from shared.investigator import deterministic as deterministic_rules
+from shared.investigator import openai as openai_transport
 from shared.investigator.llm import SYSTEM_PROMPT, build_prompt, response_schema
 
 SERVICES = ["gateway", "order", "payment"]
@@ -92,15 +93,43 @@ def anthropic_transport_fingerprint() -> dict[str, Any]:
     }
 
 
+def openai_transport_fingerprint() -> dict[str, Any]:
+    """Everything that shapes a request sent by the shipped OpenAI adapter.
+
+    Read at call time, like the Anthropic one: changing a constant, the schema adaptation or the
+    adapter's source changes the fingerprint. The sampling and reasoning parameters are not sent,
+    so they are not part of it (the runner records that they were left at provider defaults).
+    """
+    return {
+        "provider": "openai",
+        "base_url": openai_transport.DEFAULT_BASE_URL,
+        "endpoint": openai_transport.ENDPOINT,
+        "max_output_tokens": openai_transport.MAX_OUTPUT_TOKENS,
+        "store": openai_transport.STORE,
+        "schema_name": openai_transport.SCHEMA_NAME,
+        "timeout_seconds": openai_transport.TIMEOUT_SECONDS,
+        "wire_schema": openai_transport.wire_schema(response_schema()),
+        "adapter_source_sha256": normalized_source_sha256(openai_transport),
+    }
+
+
+# Providers whose request configuration this repository can fingerprint itself.
+VERIFIED_PROVIDERS = {
+    "anthropic": anthropic_transport_fingerprint,
+    "openai": openai_transport_fingerprint,
+}
+
+
 def transport_config_sha256(fingerprint: dict[str, Any]) -> str:
     return sha256_text(canonical_json(fingerprint))
 
 
 def transport_block(provider: str | None, supplied_sha256: str | None) -> dict[str, Any]:
-    """Registration of the provider path. Only the shipped Anthropic adapter is verifiable here;
-    for any other provider the hash is operator-supplied and `verified_by_repo` is False."""
-    if provider == "anthropic":
-        digest = transport_config_sha256(anthropic_transport_fingerprint())
+    """Registration of the provider path. Only the shipped adapters (Anthropic, OpenAI) are
+    verifiable here; for any other provider the hash is operator-supplied and `verified_by_repo`
+    is False."""
+    if provider in VERIFIED_PROVIDERS:
+        digest = transport_config_sha256(VERIFIED_PROVIDERS[provider]())
         return {"provider": provider, "config_sha256": digest, "verified_by_repo": True}
     return {"provider": provider, "config_sha256": supplied_sha256, "verified_by_repo": False}
 
@@ -787,11 +816,15 @@ def _verify_manifest(
         if registration.get(key) != value:
             problems.append(f"registration {key} differs from the current code")
     transport = registration["transport"]
-    if transport["provider"] == "anthropic":
-        if transport != transport_block("anthropic", None):
-            problems.append("the Anthropic transport configuration differs from the current code")
+    if transport["provider"] in VERIFIED_PROVIDERS:
+        if transport != transport_block(transport["provider"], None):
+            name = {"anthropic": "Anthropic", "openai": "OpenAI"}[transport["provider"]]
+            problems.append(f"the {name} transport configuration differs from the current code")
     elif transport.get("verified_by_repo") is not False:
-        problems.append("only the shipped Anthropic adapter can be marked verified_by_repo")
+        problems.append(
+            "only the shipped Anthropic adapter and the shipped OpenAI adapter can be marked "
+            "verified_by_repo"
+        )
     return problems
 
 

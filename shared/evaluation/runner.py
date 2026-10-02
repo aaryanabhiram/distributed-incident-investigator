@@ -4,8 +4,8 @@
 the code that is checked out now. `run_experiment` then runs the deterministic baseline once and the
 registered LLM investigator `llm_repeats` times (5 in the registration) on each registered payload
 and returns one record per run. Nothing here talks to the network itself: the LLM investigator is
-built by `build_llm_investigator` from the shipped Anthropic adapter and an injected, mockable
-`httpx.Client`.
+built by `build_llm_investigator` from the shipped adapter named in the registration (Anthropic or
+OpenAI, see `PROVIDERS`) and an injected, mockable `httpx.Client`.
 
 Exact semantics (also written into every result file):
 - one scenario x investigator x repetition is one run; every run is recorded separately and in
@@ -48,6 +48,7 @@ from shared.evaluation import (
 from shared.evaluation import scenarios as sc
 from shared.investigator import Hypothesis, InvestigatorInput, build_investigator_input
 from shared.investigator import anthropic as anthropic_transport
+from shared.investigator import openai as openai_transport
 from shared.investigator.deterministic import DeterministicInvestigator
 from shared.investigator.llm import LLMInvestigator, Prompt, response_schema
 
@@ -66,17 +67,56 @@ SCORED_OUTCOMES = (
 # every request field: it is what "no sampling parameter was sent" is tested against.
 SAMPLING_PARAMETERS = ("temperature", "top_p", "top_k")
 _CONTENT_FIELDS = ("system", "messages")  # what is asked, not how the model is configured
+# Every cache-token counter any adapter reports; a non-zero one means the cost is not computed.
+CACHE_FIELDS = ("cache_creation_input_tokens", "cache_read_input_tokens", "cached_input_tokens")
+
+
+@dataclass(frozen=True)
+class ProviderSpec:
+    """What the runner needs to know about one shipped adapter; nothing else differs by provider."""
+
+    key_env: str
+    model_env: str
+    base_url_env: str
+    default_base_url: str
+    usage_fields: tuple[str, ...]
+    sampling_parameters: tuple[str, ...]
+    content_fields: tuple[str, ...]
+
+
+PROVIDERS: dict[str, ProviderSpec] = {
+    "anthropic": ProviderSpec(
+        key_env="ANTHROPIC_API_KEY",
+        model_env="ANTHROPIC_MODEL",
+        base_url_env="ANTHROPIC_BASE_URL",
+        default_base_url=anthropic_transport.DEFAULT_BASE_URL,
+        usage_fields=anthropic_transport.USAGE_FIELDS,
+        sampling_parameters=SAMPLING_PARAMETERS,
+        content_fields=_CONTENT_FIELDS,
+    ),
+    # `reasoning` is not a sampling parameter but is a model setting the adapter leaves unsent.
+    "openai": ProviderSpec(
+        key_env="OPENAI_API_KEY",
+        model_env="OPENAI_MODEL",
+        base_url_env="OPENAI_BASE_URL",
+        default_base_url=openai_transport.DEFAULT_BASE_URL,
+        usage_fields=openai_transport.USAGE_FIELDS,
+        sampling_parameters=("temperature", "top_p", "reasoning"),
+        content_fields=("instructions", "input"),
+    ),
+}
 REQUEST_SEMANTICS = (
     "One run = one scenario x investigator x repetition, recorded separately. Deterministic: no "
     "provider request. LLM: exactly one request per run; no retry, repair, fallback or second "
     "call; repetitions are independent calls with an identical prompt; the adapter sets no "
-    "temperature or other sampling parameter (provider defaults). Provider failures are recorded "
-    "as non-scored events and the run continues; programming or configuration errors stop it."
+    "temperature or other sampling parameter and no reasoning setting (provider defaults). "
+    "Provider failures are recorded as non-scored events and the run continues; programming or "
+    "configuration errors stop it."
 )
 
 
-def observed_request_parameters(model: str) -> dict[str, Any]:
-    """What the shipped Anthropic adapter actually puts in a request, observed rather than assumed.
+def observed_request_parameters(model: str, provider: str = "anthropic") -> dict[str, Any]:
+    """What the shipped adapter actually puts in a request, observed rather than assumed.
 
     Runs the real adapter once against an in-memory recording transport (no network, no
     credentials, a placeholder prompt) and reads the request body it built. Reports the
@@ -84,17 +124,29 @@ def observed_request_parameters(model: str) -> dict[str, Any]:
     that the effective values of the unsent ones are the provider's defaults. The provider's
     default values are deliberately not recorded: they are not known to this runner and may change.
     """
+    spec = PROVIDERS[provider]
     seen: dict[str, Any] = {}
+    replies = {
+        "anthropic": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "{}"}]},
+        "openai": {
+            "status": "completed",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "{}"}]}],
+        },
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["body"] = json.loads(request.content)
-        reply = {"stop_reason": "end_turn", "content": [{"type": "text", "text": "{}"}]}
-        return httpx.Response(200, json=reply)
+        return httpx.Response(200, json=replies[provider])
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    complete = anthropic_transport.anthropic_complete(
-        api_key="placeholder-not-a-credential", model=model, client=client
-    )
+    if provider == "anthropic":
+        complete = anthropic_transport.anthropic_complete(
+            api_key="placeholder-not-a-credential", model=model, client=client
+        )
+    else:
+        complete = openai_transport.openai_complete(
+            api_key="placeholder-not-a-credential", model=model, client=client
+        )
     complete(Prompt(system="s", user="u"), {"type": "object"})
     body = seen["body"]
 
@@ -106,19 +158,24 @@ def observed_request_parameters(model: str) -> dict[str, Any]:
             }
         return value
 
-    sent = [name for name in SAMPLING_PARAMETERS if name in body]
+    sent = [name for name in spec.sampling_parameters if name in body]
     return {
         "source": (
             "observed by running the shipped adapter against an in-memory recording transport "
             "(no network)"
         ),
-        "explicitly_sent": {k: summary(body[k]) for k in sorted(body) if k not in _CONTENT_FIELDS},
-        "content_fields": sorted(k for k in body if k in _CONTENT_FIELDS),
-        "sampling_parameters_checked": list(SAMPLING_PARAMETERS),
+        "explicitly_sent": {
+            k: summary(body[k]) for k in sorted(body) if k not in spec.content_fields
+        },
+        "content_fields": sorted(k for k in body if k in spec.content_fields),
+        "sampling_parameters_checked": list(spec.sampling_parameters),
         "sampling_parameters_explicitly_sent": sent,
-        "sampling_parameters_provider_default": [n for n in SAMPLING_PARAMETERS if n not in sent],
+        "sampling_parameters_provider_default": [
+            n for n in spec.sampling_parameters if n not in sent
+        ],
         "provider_default_values": "not recorded: not known to this runner",
-        "note": "max_tokens is a generation length limit, not a sampling parameter",
+        "note": "max_tokens / max_output_tokens is a generation length limit, not a sampling "
+        "parameter",
     }
 
 
@@ -171,20 +228,23 @@ def check_registration(
     model, transport = registration.get("model"), registration["transport"]
     if not model:
         problems.append("registration.model is not set")
-    if transport.get("provider") != "anthropic" or transport.get("verified_by_repo") is not True:
+    spec = PROVIDERS.get(transport.get("provider"))
+    if spec is None or transport.get("verified_by_repo") is not True:
         problems.append(
-            "only the shipped, repository-verified Anthropic adapter can be run "
-            f"(registered provider: {transport.get('provider')!r})"
+            "only a shipped, repository-verified adapter can be run (the Anthropic adapter or "
+            f"the OpenAI adapter; registered provider: {transport.get('provider')!r})"
         )
-    ambient_model = env.get("ANTHROPIC_MODEL")
-    if ambient_model and ambient_model != model:
-        problems.append(
-            f"ANTHROPIC_MODEL is {ambient_model!r} but the registration says {model!r}; unset it "
-            "or change it to match (the registered model is never silently substituted)"
-        )
-    ambient_url = env.get("ANTHROPIC_BASE_URL")
-    if ambient_url and ambient_url.rstrip("/") != anthropic_transport.DEFAULT_BASE_URL:
-        problems.append("ANTHROPIC_BASE_URL differs from the registered endpoint")
+    else:
+        ambient_model = env.get(spec.model_env)
+        if ambient_model and ambient_model != model:
+            problems.append(
+                f"{spec.model_env} is {ambient_model!r} but the registration says {model!r}; "
+                "unset it or change it to match (the registered model is never silently "
+                "substituted)"
+            )
+        ambient_url = env.get(spec.base_url_env)
+        if ambient_url and ambient_url.rstrip("/") != spec.default_base_url:
+            problems.append(f"{spec.base_url_env} differs from the registered endpoint")
     head, dirty = git_state(root)
     if dirty:
         problems.append("the working tree has uncommitted changes outside captures/")
@@ -213,9 +273,13 @@ class LLMProbe:
         self.usage: dict[str, int | None] | None = None
         self.requests = 0
         self.prompt_sha256: str | None = None
+        self.response_model: str | None = None  # model id the provider named (OpenAI only)
 
     def usage_sink(self, usage: dict[str, int | None]) -> None:
         self.usage = usage
+
+    def model_sink(self, model: str | None) -> None:
+        self.response_model = model
 
     def wrap(self, complete: Callable[[Prompt, dict[str, Any]], str]):
         def checked(prompt: Prompt, schema: dict[str, Any]) -> str:
@@ -237,14 +301,25 @@ def build_llm_investigator(
     probe: LLMProbe,
     client: httpx.Client | None = None,
 ) -> LLMInvestigator:
-    """The shipped Anthropic adapter with the REGISTERED model and endpoint, no ambient settings."""
-    complete = anthropic_transport.anthropic_complete(
-        api_key=api_key,
-        model=registration.manifest["registration"]["model"],
-        base_url=anthropic_transport.DEFAULT_BASE_URL,
-        client=client,
-        on_usage=probe.usage_sink,
-    )
+    """The registered shipped adapter with the REGISTERED model and endpoint, never ambient ones."""
+    registered = registration.manifest["registration"]
+    if registered["transport"]["provider"] == "openai":
+        complete = openai_transport.openai_complete(
+            api_key=api_key,
+            model=registered["model"],
+            base_url=openai_transport.DEFAULT_BASE_URL,
+            client=client,
+            on_usage=probe.usage_sink,
+            on_model=probe.model_sink,
+        )
+    else:
+        complete = anthropic_transport.anthropic_complete(
+            api_key=api_key,
+            model=registered["model"],
+            base_url=anthropic_transport.DEFAULT_BASE_URL,
+            client=client,
+            on_usage=probe.usage_sink,
+        )
     return LLMInvestigator(probe.wrap(complete))
 
 
@@ -276,9 +351,9 @@ def _hypothesis_fields(produced: Any) -> dict[str, Any] | None:
     return {k: dumped.get(k) for k in keys}
 
 
-def _usage_record(probe: LLMProbe) -> dict[str, Any]:
+def _usage_record(probe: LLMProbe, provider: str = "anthropic") -> dict[str, Any]:
     usage = probe.usage or {}
-    record: dict[str, Any] = {name: usage.get(name) for name in anthropic_transport.USAGE_FIELDS}
+    record: dict[str, Any] = {name: usage.get(name) for name in PROVIDERS[provider].usage_fields}
     record["available"] = (
         usage.get("input_tokens") is not None and usage.get("output_tokens") is not None
     )
@@ -293,7 +368,7 @@ def _cost(usage: dict[str, Any] | None, pricing: dict[str, float] | None) -> flo
     """
     if not pricing or not usage or not usage["available"]:
         return None
-    if usage.get("cache_creation_input_tokens") or usage.get("cache_read_input_tokens"):
+    if any(usage.get(name) for name in CACHE_FIELDS):
         return None
     return (
         usage["input_tokens"] * pricing["input_per_mtok_usd"]
@@ -319,9 +394,10 @@ def run_experiment(
     if llm_repeats < 1:
         raise ValueError("llm_repeats must be at least 1")
     deterministic = DeterministicInvestigator()
+    provider = registration.manifest["registration"]["transport"]["provider"]
     parameters_sha256 = sc.sha256_text(
         sc.canonical_json(
-            observed_request_parameters(registration.manifest["registration"]["model"])
+            observed_request_parameters(registration.manifest["registration"]["model"], provider)
         )
     )
     runs: list[dict[str, Any]] = []
@@ -336,7 +412,7 @@ def run_experiment(
                 probe.reset(entry["rendered_prompt_sha256"])
             measured = _Measured(llm_investigator if is_llm else deterministic, clock)
             result = run_scenario(expectation, investigator_input, measured)
-            usage = _usage_record(probe) if is_llm else None
+            usage = _usage_record(probe, provider) if is_llm else None
             record = {
                 "run_index": len(runs) + 1,
                 "scenario_id": scenario_id,
@@ -370,6 +446,7 @@ def run_experiment(
                 "provider_requests": probe.requests if is_llm else 0,
                 "request_parameters_sha256": parameters_sha256 if is_llm else None,
                 "rendered_prompt_sha256": probe.prompt_sha256 if is_llm else None,
+                "response_model": probe.response_model if is_llm else None,
                 "usage": usage,
                 "cost_usd": _cost(usage, pricing),
             }
@@ -478,7 +555,9 @@ def build_results(
             "deterministic_repeats": 1,
             "retries": 0,
             "request_semantics": REQUEST_SEMANTICS,
-            "request_parameters": observed_request_parameters(manifest["registration"]["model"]),
+            "request_parameters": observed_request_parameters(
+                manifest["registration"]["model"], manifest["registration"]["transport"]["provider"]
+            ),
             "pricing": pricing,
             "cost_basis": "operator-supplied prices x provider-reported tokens; null otherwise",
         },

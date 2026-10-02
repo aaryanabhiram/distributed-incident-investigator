@@ -237,12 +237,23 @@ with `Hypothesis.model_validate_json` and checked with `validate_evidence`. The 
 the provider marks `status` and `origin_service` required (null when undetermined), and a reply that omits it raises (it would otherwise default
 to a confident `identified`). Invalid output raises —
 no repair, clamping, retries, or fallback hypothesis. No tools, agent loop, memory, or state.
-The provider is Anthropic's Messages API with native JSON-schema output, called via `httpx` (an
-existing dependency — no SDK added). Configuration: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
-(required), `ANTHROPIC_BASE_URL` (optional). Swapping providers means writing another `CompleteFn`.
+Two providers ship, each a `CompleteFn` called via `httpx` (an existing dependency — no SDKs).
+Anthropic's Messages API with native JSON-schema output (`anthropic.py`): `ANTHROPIC_API_KEY`,
+`ANTHROPIC_MODEL` (required), `ANTHROPIC_BASE_URL` (optional). OpenAI's Responses API with strict
+`json_schema` text format (`openai.py`): `OPENAI_API_KEY`, `OPENAI_MODEL` (required),
+`OPENAI_BASE_URL` (optional). The OpenAI request is the one used by the Evaluation 7 one-off script:
+`model`, `instructions`, `input`, `max_output_tokens` 4000, `store: false` and the strict schema
+(every object closed, all properties required, bound keywords dropped because `Hypothesis`
+enforces them locally); no temperature, `top_p` or reasoning setting is sent, so provider defaults
+apply. Its refusals, `incomplete` responses (`max_output_tokens` is a `token_limit`), failed
+responses and empty replies raise `ProviderError`; HTTP errors propagate as `httpx` errors with the
+status only. Usage is `input_tokens`, `output_tokens`, `cached_input_tokens` and `reasoning_tokens`
+(part of the output, billed as output), `None` when absent, and the response's model id is
+reported through an optional hook. Another provider means writing another `CompleteFn`.
 Tests use a fake `CompleteFn` and `httpx.MockTransport`; no live calls. One-off live evaluation results are recorded in
 [investigator-evaluation-history.md](investigator-evaluation-history.md) (observations, not a benchmark); the procedure for the live evaluation of the `undetermined` status (run once per case, Evaluation 7) is [manual-evaluation.md](manual-evaluation.md). Manual use:
-`anthropic_investigator_from_env()` returns an `Investigator` to pass to `investigate(payload, ...)`.
+`anthropic_investigator_from_env()` / `openai_investigator_from_env()` return an `Investigator` to
+pass to `investigate(payload, ...)`.
 
 The request (`POST /v1/messages`, `x-api-key` + `anthropic-version: 2023-06-01`, `max_tokens`,
 `output_config.format` of type `json_schema`, no beta header) and response handling (text blocks;
@@ -277,21 +288,23 @@ a handful of scenarios no rate is meaningful, and confidence is not scored. Only
 `ValidationError` and `ContractViolation` become `contract_failure`. A provider-side failure is a
 separate, non-scored `provider_failure` event (`failure_category`, a short redacted
 `failure_detail`): `ProviderError` (now defined in `llm.py`, provider-independent, with category
-`refusal`, `token_limit`, `empty_response` or `other`; the Anthropic adapter raises it for refusal,
-`max_tokens` and an empty reply) and `httpx` errors (`http_status` with the code only, `timeout`,
+`refusal`, `token_limit`, `empty_response` or `other`; the shipped adapters raise it for refusal,
+token limits and an empty reply) and `httpx` errors (`http_status` with the code only, `timeout`,
 `network`). It is never turned into an `undetermined` hypothesis, never counted as correct,
 incorrect, abstention or contract failure, never retried, and the next scenario still runs. The
 detail never holds a body, header or URL, and key-shaped text is redacted. Anything else (plain
 `ValueError`, `KeyError`, `TypeError`, a bad URL) is a programming error and propagates. A custom
-adapter must raise `ProviderError` for refusals and similar replies; only the shipped Anthropic
-adapter does today.
+adapter must raise `ProviderError` for refusals and similar replies; the shipped Anthropic and
+OpenAI adapters do.
 
 **Experiment runner (built, offline-tested only; `shared/evaluation/runner.py`,
 `scripts/run_experiment.py`).** `check_registration` loads a capture folder and refuses anything
 that is not frozen, verified (everything `verify_manifest` re-derives, including the manifest
-digest), non-smoke, registered for the shipped Anthropic adapter with a model, made from the code
+digest), non-smoke, registered for a shipped adapter (Anthropic or OpenAI, `runner.PROVIDERS`) with a
+model, made from the code
 checked out now (clean tree outside `captures/`, and `code_unchanged_since` the captured commit),
-or whose ambient `ANTHROPIC_MODEL`/`ANTHROPIC_BASE_URL` disagree with the registration (an error,
+or whose ambient model/base-URL variables for that provider (`ANTHROPIC_MODEL`/`ANTHROPIC_BASE_URL`
+or `OPENAI_MODEL`/`OPENAI_BASE_URL`) disagree with the registration (an error,
 never a substitution). `run_experiment` runs, per scenario in manifest order, the deterministic
 baseline once and the LLM investigator `llm_repeats` times (5; configurable for tests) on the same
 `InvestigatorInput`, one recorded run each, nothing overwritten or dropped. Exactly one provider
@@ -336,10 +349,13 @@ unchanged `run_correlation`, writes label-free payloads under opaque `c-<hash>` 
 `manifest.json` (injected cause, expected status/origin, gold evidence looked up in the payload,
 window, threshold, queries, registration hashes). Registration binds: the system prompt, the
 provider-independent response schema, the `chain-v1` version AND the source of `deterministic.py`,
-the exact rendered prompt of every payload, and a transport block. Only the shipped Anthropic
-adapter's request configuration (constants, adapted schema, adapter source) is hashed and
-verified here; for any other provider the operator supplies the hash and the manifest says
-`verified_by_repo: false` (an Anthropic hash is never presented as another adapter's schema).
+the exact rendered prompt of every payload, and a transport block. Only a shipped adapter's
+request configuration (Anthropic or OpenAI: constants, adapted schema, adapter source) is hashed and
+verified here, each with its own fingerprint; for any other provider the operator supplies the hash
+and the manifest says `verified_by_repo: false` (one provider's hash is never presented as another
+adapter's). The provider and model are part of the manifest registration, so a capture is taken
+for one provider; the raw responses and payloads themselves name no provider. Each LLM run also
+records the model id the provider reported (`response_model`, OpenAI only).
 A live capture also needs the operator's saved fault-injection evidence (request body, armed-at
 time, successful response, readback); it is validated against the window and its hashes are stored,
 but it cannot prove which service accepted the fault, and the manifest says so. S2 must be
@@ -370,9 +386,12 @@ declared service `undefined`/`unobserved` (fail closed; missing telemetry is nev
 return type is `Hypothesis | NoIncident | NoObservation`; the only caller in the repo is its test. Orchestration
 only; errors from either layer propagate. Tested with a fake `Investigator`.
 
-**Provider status.** The Anthropic transport exists only because the first implementation task asked for a
-concrete provider when none had been chosen; it is not an architectural requirement. The
-provider-independent boundary is `CompleteFn(prompt, json_schema) -> raw JSON text`. Live validation to date is a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. OpenAI is not a dependency, module or configuration of this repo, and the Anthropic transport has not been run live.
+**Provider status.** The Anthropic transport exists because the first implementation task asked for a
+concrete provider when none had been chosen; the OpenAI transport (`openai.py`) was added so the
+Evaluation 8 comparison can run the experiment with `gpt-5.6-luna`, the model of Evaluation 7. Neither
+is an architectural requirement. Both are offline-tested only (mocked transports); the in-repo OpenAI
+adapter and the Anthropic adapter have not been run live unless the evaluation history says so. The
+provider-independent boundary is `CompleteFn(prompt, json_schema) -> raw JSON text`. Live validation to date is a one-off live smoke test: a temporary, local-only OpenAI `CompleteFn` (Responses API, `gpt-4o-mini`, kept outside the repo) ran the real `LLMInvestigator` once over a real correlation context from the Compose stack; the reply validated into `Hypothesis` with valid evidence references. It proves the plumbing only — the input used a fixture-scale threshold, so the hypothesis is not a meaningful diagnosis. That smoke test used a temporary script, not the in-repo adapter; the Anthropic transport has not been run live.
 
 ## Major data flows
 

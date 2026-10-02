@@ -4,12 +4,14 @@
         --out captures/results/run-1 [--llm-repeats 5] \
         [--price-input-per-mtok <usd> --price-output-per-mtok <usd>]
 
-Makes up to (scenarios x llm_repeats) paid requests to the registered Anthropic model; the
-deterministic baseline makes none. It refuses unless the capture is frozen, verified, not smoke
-data and made from the code checked out now (see `shared.evaluation.runner.check_registration`).
-The model and endpoint come from the registration; `ANTHROPIC_MODEL` or `ANTHROPIC_BASE_URL` set
-to something else is an error, not a substitution. Only `ANTHROPIC_API_KEY` is read from the
-environment and it is never written anywhere.
+Makes up to (scenarios x llm_repeats) paid requests to the registered model (Anthropic or OpenAI,
+as registered in the capture); the deterministic baseline makes none. It refuses unless the capture
+is frozen, verified, not smoke data and made from the code checked out now (see
+`shared.evaluation.runner.check_registration`).
+The model and endpoint come from the registration; the provider's model or base-URL variable
+(`ANTHROPIC_MODEL`/`ANTHROPIC_BASE_URL`, `OPENAI_MODEL`/`OPENAI_BASE_URL`) set to something else is
+an error, not a substitution. Only the provider's API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
+is read from the environment and it is never written anywhere.
 
 Output (a fresh folder): `runs.jsonl` gets one line per run as it completes, so a stopped run keeps
 what it recorded; `results.json` is written only when the whole run finished (its absence means the
@@ -28,6 +30,19 @@ import httpx
 
 from shared.evaluation import runner
 from shared.evaluation import scenarios as sc
+
+
+def _registered_provider(capture: Path) -> str:
+    """The provider named in the manifest, to know which key to ask for; Anthropic if unreadable.
+
+    Only chooses the environment variable. `check_registration` is what validates the registration.
+    """
+    try:
+        manifest = json.loads((capture / "manifest.json").read_text(encoding="utf-8"))
+        provider = manifest["registration"]["transport"]["provider"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "anthropic"
+    return provider if provider in runner.PROVIDERS else "anthropic"
 
 
 def main(
@@ -62,9 +77,10 @@ def main(
         if args.price_input_per_mtok is not None
         else None
     )
-    api_key = env.get("ANTHROPIC_API_KEY")
+    key_env = runner.PROVIDERS[_registered_provider(Path(args.capture))].key_env
+    api_key = env.get(key_env)
     if not api_key:
-        print("ANTHROPIC_API_KEY is not set")
+        print(f"{key_env} is not set")
         return 2
 
     kwargs = {}

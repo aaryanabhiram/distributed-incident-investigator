@@ -233,7 +233,9 @@ def main(argv: list[str] | None = None) -> int:
     cap.add_argument("--threshold", type=float, default=sc.DEMO_THRESHOLD_MS)
     cap.add_argument("--injection-evidence", help="folder with the saved fault evidence files")
     cap.add_argument("--model", help="model the comparison will use (needed to freeze)")
-    cap.add_argument("--provider", help="'anthropic' (hash verified here) or another adapter")
+    cap.add_argument(
+        "--provider", help="'anthropic' or 'openai' (hash verified here) or another adapter"
+    )
     cap.add_argument(
         "--transport-config-sha256",
         help="for a non-anthropic provider: hash of that adapter's request/schema configuration",

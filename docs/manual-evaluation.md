@@ -7,8 +7,10 @@ appending an entry to [investigator-evaluation-history.md](investigator-evaluati
 
 This procedure runs the evaluation with **OpenAI** through a **one-off script kept outside the
 repository**. OpenAI is not a supported provider of this project: the production package stays
-provider-independent (its only shipped provider is the Anthropic transport), and nothing here adds
-an OpenAI module, dependency or configuration to it. The script supplies its own `CompleteFn`, the
+provider-independent (two transports ship: Anthropic and OpenAI), and nothing in this script adds
+a dependency or configuration to it. The script below is the historical Evaluation 7 procedure; the
+experiment comparison uses the in-repo adapter `shared/investigator/openai.py`, which reproduces its
+request. The script supplies its own `CompleteFn`, the
 existing `CompleteFn(Prompt, json_schema) -> raw JSON text` seam, to the unchanged `LLMInvestigator`.
 
 ## Status
@@ -17,7 +19,7 @@ existing `CompleteFn(Prompt, json_schema) -> raw JSON text` seam, to the unchang
 `unobserved_dependency` evidence (Milestone 5) were exercised live with this script on
 `gpt-5.6-luna`; see Evaluation 7 in the history file. Evaluations 1–6 predate this schema and
 prompt and are not comparable to it as-is. One run per case is an anecdote. The shipped
-Anthropic transport has not made a live request.
+shipped transports (Anthropic, and the in-repo OpenAI adapter) had not made a live request.
 
 ## Query provenance
 
@@ -367,13 +369,13 @@ therefore has to be committed first. That is your decision to make; nothing here
 
 4. **Immediately** (within about a minute: Jaeger returns at most 100 gateway traces and health
    checks keep adding them) capture into a NEW directory, naming the model and provider the
-   comparison will use (`anthropic` is the shipped adapter, whose transport hash is verified here;
+   comparison will use (`openai` and `anthropic` are the shipped adapters, whose transport hash is verified here;
    for another adapter pass `--transport-config-sha256` with the hash of that adapter's request and
    schema configuration, which this repository cannot verify):
 
    ```bash
    .venv/Scripts/python.exe scripts/capture_payment_latency.py capture --out captures/payment-latency-1 \
-     --injection-evidence captures/evidence-1 --model <model> --provider anthropic
+     --injection-evidence captures/evidence-1 --model <model> --provider openai
    ```
 
    Before any request the script checks that the evidence shows an accepted latency fault above
@@ -406,9 +408,11 @@ says so (`capture.injection.attribution`).
 ## Running the comparison (after a frozen capture)
 
 Prepared, not yet run, and it makes paid requests: up to scenarios x 5 = 15 requests to the
-registered Anthropic model (the deterministic baseline makes none). Only `ANTHROPIC_API_KEY` is read
-from the environment. The model and endpoint come from the registration; an `ANTHROPIC_MODEL` or
-`ANTHROPIC_BASE_URL` set to anything else makes the runner refuse rather than substitute.
+registered model (the deterministic baseline makes none). Only the registered provider's key
+(`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) is read from the environment. The model and endpoint come
+from the registration; that provider's model or base-URL variable (`OPENAI_MODEL`/`OPENAI_BASE_URL`,
+`ANTHROPIC_MODEL`/`ANTHROPIC_BASE_URL`) set to anything else makes the runner refuse rather than
+substitute.
 
 ```bash
 .venv/Scripts/python.exe scripts/run_experiment.py --capture captures/payment-latency-1 \

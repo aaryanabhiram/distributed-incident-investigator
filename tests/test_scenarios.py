@@ -656,19 +656,39 @@ def test_a_stale_anthropic_transport_registration_is_caught_by_verify(monkeypatc
     )
 
 
-def test_only_the_shipped_adapter_can_be_verified_and_another_provider_is_not_mislabeled():
+def test_only_the_shipped_adapters_can_be_verified_and_another_provider_is_not_mislabeled():
     anthropic = sc.transport_block("anthropic", None)
     assert anthropic["verified_by_repo"] is True and anthropic["config_sha256"]
-    other = sc.transport_block("openai", "f" * 64)
-    assert other == {"provider": "openai", "config_sha256": "f" * 64, "verified_by_repo": False}
+    openai = sc.transport_block("openai", None)
+    assert openai["verified_by_repo"] is True and openai["config_sha256"]
+    assert openai["config_sha256"] != anthropic["config_sha256"]
+    other = sc.transport_block("mistral", "f" * 64)
+    assert other == {"provider": "mistral", "config_sha256": "f" * 64, "verified_by_repo": False}
     assert sc.transport_block(None, None)["config_sha256"] is None
 
-    manifest, payloads = _build(provider="openai", transport_sha256="f" * 64)
+    manifest, payloads = _build(provider="mistral", transport_sha256="f" * 64)
     assert manifest["registration"]["transport"]["verified_by_repo"] is False
-    assert "wire_schema_sha256" not in manifest["registration"]
     assert _verify(manifest, payloads) == []
     manifest["registration"]["transport"]["verified_by_repo"] = True
     assert any("only the shipped Anthropic adapter" in p for p in _verify(manifest, payloads))
+
+
+def test_the_openai_transport_is_registered_verified_and_a_stale_one_is_caught(monkeypatch):
+    from shared.investigator import openai as transport
+
+    manifest, payloads = _build(provider="openai", model="gpt-5.6-luna")
+    registered = manifest["registration"]["transport"]
+    assert registered == sc.transport_block("openai", None)
+    assert "hypothesis" in json.dumps(sc.openai_transport_fingerprint())
+    assert _verify(manifest, payloads) == []
+    monkeypatch.setattr(transport, "MAX_OUTPUT_TOKENS", 99)
+    assert any("OpenAI transport configuration differs" in p for p in _verify(manifest, payloads))
+
+
+def test_the_openai_adapter_source_is_part_of_its_fingerprint(monkeypatch):
+    base = sc.transport_config_sha256(sc.openai_transport_fingerprint())
+    monkeypatch.setattr(sc.inspect, "getsource", lambda module: "a different adapter source")
+    assert sc.transport_config_sha256(sc.openai_transport_fingerprint()) != base
 
 
 # ------------------------------------------------------------------------- capture script

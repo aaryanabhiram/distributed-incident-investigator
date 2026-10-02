@@ -491,7 +491,7 @@ def test_a_frozen_verified_capture_is_accepted(tmp_path):
         ({}, False, "not frozen"),
         ({"mode": "offline_smoke"}, True, "smoke"),
         ({"model": None}, True, "model is not set"),
-        ({"provider": "openai", "transport_sha256": "f" * 64}, True, "Anthropic adapter"),
+        ({"provider": "mistral", "transport_sha256": "f" * 64}, True, "Anthropic adapter"),
         ({"provider": None}, True, "Anthropic adapter"),
     ],
 )
