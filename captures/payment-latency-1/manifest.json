@@ -1,0 +1,149 @@
+{
+  "capture": {
+    "endpoints": {
+      "jaeger": "http://localhost:16686",
+      "prometheus": "http://localhost:9090"
+    },
+    "fault_status_at_capture": {
+      "active": true,
+      "mode": "latency",
+      "seconds_remaining": 80.75134536099995
+    },
+    "injection": {
+      "armed_at": "2026-10-02T07:28:01+00:00",
+      "attribution": "operator-declared: the request was sent to payment's admin port; the response carries no service name, so this is not independent proof of which service",
+      "duration_seconds": 120,
+      "evidence_sha256": {
+        "fault-armed-at.txt": "16261ef273681ebfd7c5e10f4a945d9a3126e746e82154790f9c18dd38aeef4d",
+        "fault-readback-before-traffic.json": "c301cdce0fb592addac5e2cab92d5952a511ce5578fbd1c9f7de5e112551039b",
+        "fault-request.json": "17f3a2ef5b86f3789504f8c56450d47473614fcbbf8af8dce0b5b666622d703a",
+        "fault-response.json": "885277b09473f82673cef0e80529b45a1e1db0fc3b58d05c4ff48aea4fef01d2"
+      },
+      "latency_ms": 1500,
+      "mode": "latency",
+      "service": "payment"
+    },
+    "jaeger_limit": 100,
+    "jaeger_traces_returned": 100,
+    "metric": "http_server_duration_milliseconds",
+    "mode": "live",
+    "queries": {
+      "full": "sum by (service) (increase(http_server_duration_milliseconds_sum{http_target=~\"/checkout|/orders|/charge\"}[5m])) / sum by (service) (increase(http_server_duration_milliseconds_count{http_target=~\"/checkout|/orders|/charge\"}[5m]))",
+      "restricted": "sum by (service) (increase(http_server_duration_milliseconds_sum{service=~\"gateway|order\",http_target=~\"/checkout|/orders|/charge\"}[5m])) / sum by (service) (increase(http_server_duration_milliseconds_count{service=~\"gateway|order\",http_target=~\"/checkout|/orders|/charge\"}[5m]))"
+    },
+    "raw_sha256": {
+      "jaeger.json": "555e4c55e3bb99e5fa1c1d9756c0afa86954778028318c90bafb7f650c627898",
+      "prometheus_full.json": "6d15bbd1db5459eed92021414586e1299196a8503562b90a6b87ad15bd723eed",
+      "prometheus_restricted.json": "3f347f807e27493b4f21baf1c887b7516851a4ddf0d0f13a29537443a5d0e538"
+    },
+    "services": [
+      "gateway",
+      "order",
+      "payment"
+    ],
+    "threshold_ms": 500.0,
+    "trace_service": "gateway",
+    "window_end": "2026-10-02T07:28:38.843634+00:00",
+    "window_start": "2026-10-02T07:23:38.843634+00:00"
+  },
+  "frozen": true,
+  "frozen_at": "2026-10-02T07:29:16.479498+00:00",
+  "manifest_sha256": "7ffeb7070a9c41687a991ff8286a83fa8dabf914a4e971eb25e89e5b57a6cce5",
+  "manifest_version": 2,
+  "registration": {
+    "deterministic_repeats": 1,
+    "deterministic_ruleset": "chain-v1",
+    "deterministic_source_sha256": "0645d6904f64a90ca76e8e59f4cb15f46ce2e4e39870932deeed46c5936008eb",
+    "git_commit": "d8e3acfc86d3a2be45f7df2a2f05c26df7892cb2",
+    "git_tree_dirty": false,
+    "llm_repeats_planned": 5,
+    "model": "gpt-5.6-luna",
+    "response_schema_sha256": "b177adb1e410b59d6b7e59ba15b1d7e1e1589f389cb80430d6554715ba2b6da7",
+    "system_prompt_sha256": "7fc2a1b822483272e9eafa3c7218eed89bcbe55c950e22b7ff6b3c2dd2d12670",
+    "transport": {
+      "config_sha256": "b92c62492a2b5eb2b07638bf7d2e221fc27ec70c1c493aec8b219dec0de59649",
+      "provider": "openai",
+      "verified_by_repo": true
+    }
+  },
+  "scenarios": [
+    {
+      "expectation": {
+        "case_id": "c-ff630bb71c",
+        "expected_origin": null,
+        "expected_status": "unscored",
+        "gold_evidence": null,
+        "injected_cause": "payment"
+      },
+      "kind": "live_capture",
+      "notes": "Full telemetry. Correctness unscored: no span durations or self-time, and a leaf in the dependency graph does not establish causal origin. Descriptive output, evidence validity, runtime and cost only.",
+      "payload_ref": "payloads/c-ff630bb71c.json",
+      "payload_sha256": "ff630bb71c0ec0a2b36838787dc10ce0cdbff331c3371b233ea13ac30904a93b",
+      "primary_comparison": true,
+      "rendered_prompt_sha256": "addf05cdd6e8992478d7e8eaf80a868cac2a8dbfbe71499e88b927a145abc59a",
+      "scenario_id": "S1",
+      "smoke_test_only": false
+    },
+    {
+      "expectation": {
+        "case_id": "c-0c5c392211",
+        "expected_origin": null,
+        "expected_status": "undetermined",
+        "gold_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ],
+        "injected_cause": "payment"
+      },
+      "kind": "live_capture_restricted_query",
+      "notes": "Same window and Jaeger response as S1; PromQL restricted to gateway and order so payment is unobserved. Abstention is justified by the unobserved dependency, not by the injection.",
+      "payload_ref": "payloads/c-0c5c392211.json",
+      "payload_sha256": "0c5c39221127e526220875b3f11fa4436a2bc02bbb1ae64df1d31dcc36d94d4a",
+      "primary_comparison": true,
+      "rendered_prompt_sha256": "5b6ed105a4cfcc20c98700ec7c079a42a65a4485c40f1bcebc6976f5be19d204",
+      "scenario_id": "S2",
+      "smoke_test_only": false
+    },
+    {
+      "expectation": {
+        "case_id": "c-6eef4245d1",
+        "expected_origin": null,
+        "expected_status": "undetermined",
+        "gold_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 2,
+            "kind": "anomaly"
+          }
+        ],
+        "injected_cause": "payment"
+      },
+      "kind": "controlled_ablation",
+      "notes": "S1 with relationships deleted (not produced by the pipeline; real Jaeger truncation can look similar). Three anomalous services with no known edge: a chain and a shared factor are indistinguishable.",
+      "payload_ref": "payloads/c-6eef4245d1.json",
+      "payload_sha256": "6eef4245d144025600855ee1cfa23d8a131fada67613db490646ccfe7f1dd4f2",
+      "primary_comparison": true,
+      "rendered_prompt_sha256": "fd9539f4061e0ea37dfa40a5ef14f4fc33da9585b2d7950a9fc2628d07765852",
+      "scenario_id": "S3",
+      "smoke_test_only": false
+    }
+  ],
+  "smoke_test_only": false
+}
