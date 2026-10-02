@@ -405,6 +405,28 @@ What the evidence does not prove: the fault response carries no service name, so
 cause is payment" rests on the procedure (the POST goes to payment's admin port). The manifest
 says so (`capture.injection.attribution`).
 
+## Capturing the order-fault scenarios (S4, S5; Evaluation 9)
+
+Same procedure and same safeguards as above, with the fault injected into **order** (port 8001)
+instead of payment. The order service has to run the build that mounts `/admin/fault`
+(`docker compose up -d --build order` recreates only that container; do not touch Prometheus or
+Jaeger, and send a little traffic first so order's counters have more than one sample). The
+capture builds S4 (payment observed and healthy, expected `identified`, origin `order`) and S5
+(payment unobserved, expected `undetermined`):
+
+```bash
+mkdir -p captures/evidence-order-1
+cat > captures/evidence-order-1/fault-request.json <<'EOF'
+{"mode": "latency", "duration_seconds": 120, "latency_ms": 1500}
+EOF
+date -u +%Y-%m-%dT%H:%M:%SZ > captures/evidence-order-1/fault-armed-at.txt
+curl -sS -f -X POST localhost:8001/admin/fault -H "Content-Type: application/json"   -d @captures/evidence-order-1/fault-request.json -o captures/evidence-order-1/fault-response.json && curl -sS -f localhost:8001/admin/fault -o captures/evidence-order-1/fault-readback-before-traffic.json && for i in $(seq 12); do curl -s -X POST localhost:8000/checkout -H "Content-Type: application/json" -d '{"item": "widget", "amount": 25.0}' > /dev/null; done && sleep 15 && .venv/Scripts/python.exe scripts/capture_payment_latency.py capture --out captures/order-latency-1   --injection-evidence captures/evidence-order-1 --fault-service order --model gpt-5.6-luna --provider openai
+curl -sS -X DELETE localhost:8001/admin/fault
+```
+
+Then `verify`, `verify --freeze` and the run are exactly as for the payment capture, with
+`captures/order-latency-1` in place of `captures/payment-latency-1`.
+
 ## Running the comparison (after a frozen capture)
 
 Run once (Evaluation 8, `results/run-1`); it makes paid requests: up to scenarios x 5 = 15 requests to the

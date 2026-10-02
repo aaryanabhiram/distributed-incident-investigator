@@ -85,7 +85,7 @@ over plain HTTP: `gateway → order → payment`. Each is instrumented with Open
 metrics, structured logs) via a shared setup in `shared/telemetry/`, and the whole chain runs
 together with a local observability stack (Jaeger, Prometheus, Grafana) under Docker Compose.
 
-**Fault injection.** The `payment` service can be made to add latency or return errors on
+**Fault injection.** The `payment` and `order` services can be made to add latency or return errors on
 demand (`shared/fault_injection/`); injected faults show up in telemetry like real problems.
 
 **Correlation (implemented; thresholds are fixture/demo policy, not production alerting policy; log evidence is not implemented).** `shared/correlation/` is a network-free deterministic core:

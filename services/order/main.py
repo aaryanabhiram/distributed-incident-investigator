@@ -6,12 +6,16 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from shared.fault_injection import FaultInjector, install_fault_routes
 from shared.telemetry import setup_telemetry
 
 PAYMENT_SERVICE_URL = os.environ.get("PAYMENT_SERVICE_URL", "http://127.0.0.1:8002")
 
 app = FastAPI(title="order", telemetry={"auto_configure": False})
 setup_telemetry(app, "order")
+
+fault_injector = FaultInjector("order")
+install_fault_routes(app, fault_injector)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,7 @@ def health() -> dict[str, str]:
 
 @app.post("/orders", response_model=OrderResponse)
 def create_order(request: OrderRequest) -> OrderResponse:
+    fault_injector.maybe_apply()
     order_id = str(uuid.uuid4())
     logger.info("order created", extra={"order_id": order_id, "amount": request.amount})
 

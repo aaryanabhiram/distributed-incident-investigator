@@ -371,9 +371,19 @@ unset model/transport. HEAD itself may differ from the captured commit as long a
 it and only paths under `captures/` changed (`gitstate.code_unchanged_since`), so committing the
 capture folder before or after freezing is fine and a frozen manifest stays verifiable and
 runnable; any source commit, uncommitted change or untracked source file is not. The committed 2026-09-30 backend fixtures were used only as an offline smoke test;
-the Evaluation 7 payloads were never saved and cannot be reconstructed. Synthetic order/gateway
-scenarios are not built: no fault hooks exist there, so their contexts would be assumed, not
-observed.
+the Evaluation 7 payloads were never saved and cannot be reconstructed. Synthetic gateway
+scenarios are not built (no fault hook there). The `order` service now mounts the same fault
+routes as `payment` (`shared/fault_injection`, added for Evaluation 9), so a second scenario family
+is a genuine incident: `capture_payment_latency.py capture --fault-service order` builds S4 (full
+telemetry, latency fault in order, payment observed and under the threshold: the evidence supports
+one origin, so `expected_status="identified"`, origin `order`, the only scenario that expects an
+identification) and S5 (the same window with the PromQL restricted to gateway and order, payment
+unobserved: `undetermined`). They are one incident with and without payment's telemetry, so the
+label difference comes only from the evidence. The `chain-v1` rules, the prompt, the schema and the
+scoring are unchanged; a manifest without `capture.family` is a payment capture. Limitation: the S4
+label shares its logic with `chain-v1` (a callee measured healthy leaves the caller as origin), so
+`chain-v1` is expected to be right by construction; the open question is whether the LLM makes the
+call the evidence supports or over-abstains. A co-fault in gateway is not excluded.
 
 **End-to-end entry point (`shared/pipeline.py`).** `correlate_and_investigate(...)` takes the
 `run_correlation` inputs plus an `Investigator`, runs `run_correlation`, converts the context with

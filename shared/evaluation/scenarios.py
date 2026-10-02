@@ -15,6 +15,18 @@ Three scenarios come from one capture (one fault, one window, one Jaeger respons
   produce). Expected `undetermined`, registered only if three anomalous services remain with no
   edge between them.
 
+A second family (`family="order"`, Evaluation 9) comes from one latency fault injected into the
+ORDER service, where payment stays observed and healthy:
+
+- S4 full telemetry. Gateway and order are slow, payment is observed and under the threshold, so
+  the evidence supports one origin: order (its own callee is measured healthy). Expected
+  `identified`, origin `order`. This is the only scenario that expects an identification.
+- S5 the same window with the PromQL restricted to gateway and order (payment unobserved). Order's
+  callee is now unknown, so the evidence no longer supports an origin. Expected `undetermined`.
+
+S4 and S5 are one incident seen with and without payment's telemetry; the label difference comes
+only from what the evidence contains. The `chain-v1` rules and the LLM prompt are unchanged.
+
 Labels (injected cause, expected status/origin, gold evidence) live only in the manifest entry,
 never in a payload. Gold indices are looked up in the serialized payload, never assumed.
 """
@@ -51,6 +63,7 @@ TRACE_SERVICE = "gateway"
 DEMO_THRESHOLD_MS = 500.0  # demonstration value, not alerting policy
 MANIFEST_VERSION = 2
 QUERY_WINDOW = "5m"
+FAMILIES = ("payment", "order")  # which service the live fault was injected into
 RAW_FILES = ("prometheus_full.json", "prometheus_restricted.json", "jaeger.json")
 INJECTION_FILES = ("fault-request.json", "fault-response.json", "fault-armed-at.txt")
 INJECTION_OPTIONAL = ("fault-readback-before-traffic.json",)
@@ -275,6 +288,24 @@ def verify_s3(payload: dict[str, Any]) -> list[str]:
     return problems
 
 
+def verify_s4(payload: dict[str, Any]) -> list[str]:
+    """Problems that make `payload` unusable as the order-fault, full-telemetry scenario.
+
+    The identification is justified only if order is anomalous, its callee payment is measured
+    (observed) and not anomalous, and the chain is intact.
+    """
+    problems = []
+    if _anomalous(payload) != {"gateway", "order"}:
+        problems.append(f"anomalous services are {sorted(_anomalous(payload))}, not gateway+order")
+    if _edges(payload) != EDGES:
+        problems.append(f"relationships are {sorted(_edges(payload))}, not the full chain")
+    if _coverage(payload) != dict.fromkeys(SERVICES, "observed"):
+        problems.append("coverage is not observed for every service")
+    if payload["unobserved_dependencies"]:
+        problems.append("unobserved dependencies are present")
+    return problems
+
+
 # ------------------------------------------------------------------------------ gold evidence
 
 
@@ -303,6 +334,21 @@ def gold_s2(payload: dict[str, Any]) -> list[EvidenceRef]:
                 payload["unobserved_dependencies"],
                 {"caller": "order", "callee": "payment"},
                 "unobserved dependency",
+            ),
+        ),
+    ]
+
+
+def gold_s4(payload: dict[str, Any]) -> list[EvidenceRef]:
+    """Minimal justification for naming order: it is slow and its callee payment is measured."""
+    return [
+        EvidenceRef(
+            kind="anomaly", index=_index(payload["anomalies"], {"service": "order"}, "anomaly")
+        ),
+        EvidenceRef(
+            kind="relationship",
+            index=_index(
+                payload["relationships"], {"caller": "order", "callee": "payment"}, "relationship"
             ),
         ),
     ]
@@ -432,6 +478,68 @@ def register(
     ]
 
 
+def register_order(
+    s4: dict[str, Any],
+    s5: dict[str, Any],
+    *,
+    smoke: bool,
+    injected_cause: str | None = None,
+) -> list[dict[str, Any]]:
+    """Verify the two order-fault payloads and build one manifest entry each; raises on problems."""
+    problems = (
+        [f"S4: {p}" for p in verify_s4(s4)]
+        + [f"S5: {p}" for p in verify_s2(s5)]
+        + [f"S4/S5: {p}" for p in verify_comparable(s4, s5)]
+    )
+    if problems:
+        raise ValueError("; ".join(problems))
+    specs = [
+        (
+            "S4",
+            s4,
+            "live_capture",
+            ScenarioExpectation(
+                case_id=opaque_id(s4),
+                injected_cause=injected_cause,
+                expected_status="identified",
+                expected_origin="order",
+                gold_evidence=gold_s4(s4),
+            ),
+            "Full telemetry, latency fault in order. Gateway and order are slow and payment is "
+            "observed and under the threshold, so order's own callee is measured healthy and the "
+            "evidence supports order as the origin (a co-fault in gateway is not excluded).",
+        ),
+        (
+            "S5",
+            s5,
+            "live_capture_restricted_query",
+            ScenarioExpectation(
+                case_id=opaque_id(s5),
+                injected_cause=injected_cause,
+                expected_status="undetermined",
+                gold_evidence=gold_s2(s5),
+            ),
+            "Same window and Jaeger response as S4; PromQL restricted to gateway and order so "
+            "payment is unobserved. Abstention is justified by the unobserved dependency, not by "
+            "the injection.",
+        ),
+    ]
+    return [
+        {
+            "scenario_id": sid,
+            "kind": f"offline_smoke_{kind}" if smoke else kind,
+            "primary_comparison": not smoke,
+            "smoke_test_only": smoke,
+            "payload_ref": f"payloads/{exp.case_id}.json",
+            "payload_sha256": sha256_text(canonical_json(payload)),
+            "rendered_prompt_sha256": rendered_prompt_sha256(payload),
+            "expectation": exp.model_dump(mode="json"),
+            "notes": notes,
+        }
+        for sid, payload, kind, exp, notes in specs
+    ]
+
+
 def verify_capture(entries: list[dict[str, Any]], payloads: dict[str, dict[str, Any]]) -> list[str]:
     """Re-check a written capture: hashes, case ids, scenario conditions and gold indices.
 
@@ -451,8 +559,14 @@ def verify_capture(entries: list[dict[str, Any]], payloads: dict[str, dict[str, 
         for key in ("injected_cause", "expected_status", "expected_origin", "gold_evidence"):
             if key in payload:
                 problems.append(f"{entry['scenario_id']}: label field {key!r} leaked into payload")
-    checks = {"S1": verify_s1, "S2": verify_s2, "S3": verify_s3}
-    golds = {"S2": gold_s2, "S3": gold_s3}
+    checks = {
+        "S1": verify_s1,
+        "S2": verify_s2,
+        "S3": verify_s3,
+        "S4": verify_s4,
+        "S5": verify_s2,
+    }
+    golds = {"S2": gold_s2, "S3": gold_s3, "S4": gold_s4, "S5": gold_s2}
     for sid, check in checks.items():
         entry = by_id.get(sid)
         payload = payloads.get(entry["payload_ref"]) if entry else None
@@ -514,19 +628,21 @@ def validate_injection(
     window_start: datetime,
     window_end: datetime,
     threshold: float,
+    service: str = "payment",
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Check the operator's saved fault-injection evidence against the capture window.
 
     `evidence` maps file name to text: `fault-request.json` (the body POSTed to the payment
     service's `/admin/fault`), `fault-response.json` (the successful response),
     `fault-armed-at.txt` (a UTC timestamp taken just before the POST) and optionally
-    `fault-readback-before-traffic.json`. Returns the injection record to store in the manifest,
+    `fault-readback-before-traffic.json`. `service` is the service the operator POSTed to (`payment`
+    or `order`). Returns the injection record to store in the manifest,
     or `None` plus problems.
 
     What this does and does not prove: it shows a latency fault above the anomaly threshold was
     accepted and armed in a time span that covers the window. It cannot show WHICH service
-    accepted it (the response has no service name), so the `payment` attribution is declared by
-    the operator procedure (the POST goes to payment's admin port), not independently proven.
+    accepted it (the response has no service name), so the service attribution is declared by
+    the operator procedure (the POST goes to that service's admin port), not independently proven.
     """
     problems: list[str] = []
     missing = [n for n in INJECTION_FILES if n not in evidence]
@@ -566,14 +682,14 @@ def validate_injection(
     if armed_at > window_end or armed_at + timedelta(seconds=duration) < window_start:
         return None, ["the fault was not armed during the capture window (fault-armed-at.txt)"]
     return {
-        "service": "payment",
+        "service": service,
         "mode": "latency",
         "latency_ms": latency,
         "duration_seconds": duration,
         "armed_at": armed_at.astimezone(timezone.utc).isoformat(),
         "evidence_sha256": {n: sha256_text(evidence[n]) for n in sorted(evidence)},
         "attribution": (
-            "operator-declared: the request was sent to payment's admin port; the response "
+            f"operator-declared: the request was sent to {service}'s admin port; the response "
             "carries no service name, so this is not independent proof of which service"
         ),
     }, []
@@ -625,6 +741,7 @@ def build_capture(
     endpoints: dict[str, str] | None,
     fault_status_at_capture: Any,
     jaeger_traces: int | None,
+    family: str = "payment",
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Build the manifest and payloads from raw responses; raises `ValueError` on any problem.
 
@@ -633,25 +750,34 @@ def build_capture(
     """
     if mode not in ("live", "offline_smoke"):
         raise ValueError(f"unknown capture mode {mode!r}")
+    if family not in FAMILIES:
+        raise ValueError(f"unknown scenario family {family!r}")
     smoke = mode == "offline_smoke"
     injection = None
     if not smoke:
         if evidence is None:
             raise ValueError("a live capture needs injection evidence")
         injection, problems = validate_injection(
-            evidence, window_start=window_start, window_end=window_end, threshold=threshold
+            evidence,
+            window_start=window_start,
+            window_end=window_end,
+            threshold=threshold,
+            service=family,
         )
         if problems:
             raise ValueError("injection evidence: " + "; ".join(problems))
     s1, s2 = _rebuild(raw, window_start, window_end, threshold)
-    entries = register(
-        s1, s2, smoke=smoke, injected_cause=injection["service"] if injection else None
-    )
-    payloads = {
-        entries[0]["payload_ref"]: s1,
-        entries[1]["payload_ref"]: s2,
-        entries[2]["payload_ref"]: ablate_relationships(s1),
-    }
+    cause = injection["service"] if injection else None
+    if family == "order":
+        entries = register_order(s1, s2, smoke=smoke, injected_cause=cause)
+        payloads = {entries[0]["payload_ref"]: s1, entries[1]["payload_ref"]: s2}
+    else:
+        entries = register(s1, s2, smoke=smoke, injected_cause=cause)
+        payloads = {
+            entries[0]["payload_ref"]: s1,
+            entries[1]["payload_ref"]: s2,
+            entries[2]["payload_ref"]: ablate_relationships(s1),
+        }
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "frozen": False,
@@ -667,6 +793,7 @@ def build_capture(
         },
         "capture": {
             "mode": mode,
+            "family": family,
             "window_start": window_start.isoformat(),
             "window_end": window_end.isoformat(),
             "threshold_ms": threshold,
@@ -752,6 +879,9 @@ def _verify_manifest(
     if mode not in ("live", "offline_smoke"):
         return [*problems, f"capture.mode {mode!r} is not 'live' or 'offline_smoke'"]
     smoke = mode == "offline_smoke"
+    family = cap.get("family", "payment")  # captures made before the field existed are payment
+    if family not in FAMILIES:
+        return [*problems, f"capture.family {family!r} is not one of {list(FAMILIES)}"]
     if manifest["smoke_test_only"] is not smoke:
         problems.append("smoke_test_only disagrees with capture.mode (it is derived from the mode)")
 
@@ -779,7 +909,11 @@ def _verify_manifest(
         problems.append("capture.queries are not the registered queries")
     window_start, window_end = parse_iso_utc(cap["window_start"]), parse_iso_utc(cap["window_end"])
     s1, s2 = _rebuild(raw, window_start, window_end, cap["threshold_ms"])
-    rebuilt = {"S1": s1, "S2": s2, "S3": ablate_relationships(s1)}
+    rebuilt = (
+        {"S4": s1, "S5": s2}
+        if family == "order"
+        else {"S1": s1, "S2": s2, "S3": ablate_relationships(s1)}
+    )
 
     injection = cap["injection"]
     if smoke:
@@ -793,13 +927,19 @@ def _verify_manifest(
             window_start=window_start,
             window_end=window_end,
             threshold=cap["threshold_ms"],
+            service=family,
         )
         problems += [f"injection: {p}" for p in injection_problems]
         if derived is not None and derived != injection:
             problems.append("the injection record does not match the evidence files")
 
     try:
-        expected = register(s1, s2, smoke=smoke, injected_cause=(injection or {}).get("service"))
+        cause = (injection or {}).get("service")
+        expected = (
+            register_order(s1, s2, smoke=smoke, injected_cause=cause)
+            if family == "order"
+            else register(s1, s2, smoke=smoke, injected_cause=cause)
+        )
     except ValueError as exc:
         problems.append(f"scenarios cannot be registered from the raw capture: {exc}")
     else:

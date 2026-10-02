@@ -24,7 +24,8 @@ Live mode makes exactly three GETs, the same requests `run_correlation` makes: t
 query and the restricted one to Prometheus (`/api/v1/query`, evaluated at the window end) and one
 Jaeger `/api/traces` for service gateway. The raw response text is saved unmodified; S1 and S2 are
 then built from that saved text by the unchanged `run_correlation`, so they share one Jaeger
-response. It also reads payment's `GET /admin/fault` once, for the record.
+response. It also reads the faulted service's `GET /admin/fault` once, for the record. With
+`--fault-service order` (Evaluation 9) the same three GETs build S4 (full) and S5 (restricted).
 """
 
 from __future__ import annotations
@@ -82,8 +83,9 @@ def _record_live(args: argparse.Namespace, start: datetime, end: datetime) -> di
 
 
 def _fault_status(args: argparse.Namespace) -> dict | None:
+    admin = args.order_admin if args.fault_service == "order" else args.payment_admin
     try:
-        response = httpx.get(f"{args.payment_admin}/admin/fault", timeout=10)
+        response = httpx.get(f"{admin}/admin/fault", timeout=10)
         response.raise_for_status()
         return response.json()
     except (httpx.HTTPError, ValueError) as exc:
@@ -134,7 +136,11 @@ def cmd_capture(args: argparse.Namespace) -> int:
             return 2
         evidence = sc.load_evidence(Path(args.injection_evidence))
         _, problems = sc.validate_injection(
-            evidence, window_start=start, window_end=end, threshold=args.threshold
+            evidence,
+            window_start=start,
+            window_end=end,
+            threshold=args.threshold,
+            service=args.fault_service,
         )
         if problems:  # checked before any request so nothing is left behind
             print("injection evidence is not usable, nothing was captured:")
@@ -168,6 +174,7 @@ def cmd_capture(args: argparse.Namespace) -> int:
             endpoints=None if smoke else {"prometheus": args.prometheus, "jaeger": args.jaeger},
             fault_status_at_capture=fault,
             jaeger_traces=jaeger_traces,
+            family=args.fault_service,
         )
     except ValueError as exc:
         print("capture failed:", exc)
@@ -230,6 +237,13 @@ def main(argv: list[str] | None = None) -> int:
     cap.add_argument("--prometheus", default="http://localhost:9090")
     cap.add_argument("--jaeger", default="http://localhost:16686")
     cap.add_argument("--payment-admin", default="http://localhost:8002")
+    cap.add_argument("--order-admin", default="http://localhost:8001")
+    cap.add_argument(
+        "--fault-service",
+        choices=sc.FAMILIES,
+        default="payment",
+        help="service the live fault was injected into: payment (S1-S3) or order (S4-S5)",
+    )
     cap.add_argument("--threshold", type=float, default=sc.DEMO_THRESHOLD_MS)
     cap.add_argument("--injection-evidence", help="folder with the saved fault evidence files")
     cap.add_argument("--model", help="model the comparison will use (needed to freeze)")
