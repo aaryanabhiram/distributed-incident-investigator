@@ -1,0 +1,948 @@
+{
+  "registration": {
+    "capture_window": [
+      "2026-10-02T07:43:19.420864+00:00",
+      "2026-10-02T07:48:19.420864+00:00"
+    ],
+    "captured_git_commit": "2f70aed97ab34c6bd02264ce09a1e5c209343efd",
+    "code_revision": "a0d3185d5652b124a78c6fa725549f5b23e22fbc",
+    "code_tree_clean": true,
+    "manifest_sha256": "d962f88db36ad7d753d3845f013891beeefb3c0510a0bbceac1443cf9982e350",
+    "registered": {
+      "deterministic_repeats": 1,
+      "deterministic_ruleset": "chain-v1",
+      "deterministic_source_sha256": "0645d6904f64a90ca76e8e59f4cb15f46ce2e4e39870932deeed46c5936008eb",
+      "git_commit": "2f70aed97ab34c6bd02264ce09a1e5c209343efd",
+      "git_tree_dirty": false,
+      "llm_repeats_planned": 5,
+      "model": "gpt-5.6-luna",
+      "response_schema_sha256": "b177adb1e410b59d6b7e59ba15b1d7e1e1589f389cb80430d6554715ba2b6da7",
+      "system_prompt_sha256": "7fc2a1b822483272e9eafa3c7218eed89bcbe55c950e22b7ff6b3c2dd2d12670",
+      "transport": {
+        "config_sha256": "b92c62492a2b5eb2b07638bf7d2e221fc27ec70c1c493aec8b219dec0de59649",
+        "provider": "openai",
+        "verified_by_repo": true
+      }
+    },
+    "scenarios": {
+      "S4": {
+        "case_id": "c-994c0c71b0",
+        "kind": "live_capture",
+        "payload_sha256": "994c0c71b02ff192658d1d76a4662b4362aebd5b1400b0cafe80d7f37b38e1d8",
+        "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39"
+      },
+      "S5": {
+        "case_id": "c-617f03f15a",
+        "kind": "live_capture_restricted_query",
+        "payload_sha256": "617f03f15a6f9d1eeb71895f5d3394eb7271e631f381b8ad66c85f0f0da4a7ec",
+        "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd"
+      }
+    }
+  },
+  "result_version": 1,
+  "run_config": {
+    "cost_basis": "operator-supplied prices x provider-reported tokens; null otherwise",
+    "deterministic_repeats": 1,
+    "llm_repeats": 5,
+    "model": "gpt-5.6-luna",
+    "pricing": null,
+    "provider": "openai",
+    "request_parameters": {
+      "content_fields": [
+        "input",
+        "instructions"
+      ],
+      "explicitly_sent": {
+        "max_output_tokens": 4000,
+        "model": "gpt-5.6-luna",
+        "store": false,
+        "text": {
+          "format": "json_schema"
+        }
+      },
+      "note": "max_tokens / max_output_tokens is a generation length limit, not a sampling parameter",
+      "provider_default_values": "not recorded: not known to this runner",
+      "sampling_parameters_checked": [
+        "temperature",
+        "top_p",
+        "reasoning"
+      ],
+      "sampling_parameters_explicitly_sent": [],
+      "sampling_parameters_provider_default": [
+        "temperature",
+        "top_p",
+        "reasoning"
+      ],
+      "source": "observed by running the shipped adapter against an in-memory recording transport (no network)"
+    },
+    "request_semantics": "One run = one scenario x investigator x repetition, recorded separately. Deterministic: no provider request. LLM: exactly one request per run; no retry, repair, fallback or second call; repetitions are independent calls with an identical prompt; the adapter sets no temperature or other sampling parameter and no reasoning setting (provider defaults). Provider failures are recorded as non-scored events and the run continues; programming or configuration errors stop it.",
+    "retries": 0
+  },
+  "runs": [
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 4.8e-05,
+      "evidence": {
+        "precision": 0.5,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.5,
+        "origin_service": "order",
+        "root_cause": "order is the only anomalous service with no anomalous or unknown callee; anomalies upstream of it are consistent with propagation. Rule set chain-v1.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          }
+        ]
+      },
+      "investigator": "deterministic",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 0,
+      "rendered_prompt_sha256": null,
+      "repetition": 1,
+      "request_parameters_sha256": null,
+      "response_model": null,
+      "run_index": 1,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": null
+    },
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 7.241275,
+      "evidence": {
+        "precision": 0.5,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.68,
+        "origin_service": "order",
+        "root_cause": "The order service is the most likely origin of the elevated latency. Its anomalous server duration is consistent with the gateway's anomalous latency because gateway invokes order; the order-to-payment relationship provides no evidence that payment is the source.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "repetition": 1,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 2,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 0,
+        "input_tokens": 1302,
+        "output_tokens": 498,
+        "reasoning_tokens": 381
+      }
+    },
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 5.215678,
+      "evidence": {
+        "precision": 0.3333333333333333,
+        "relevance_recall": 0.5,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.78,
+        "origin_service": "order",
+        "root_cause": "The most likely origin is elevated latency in the order service, which is directly anomalous and can propagate to gateway latency because gateway invokes order.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "anomaly"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "repetition": 2,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 3,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1299,
+        "input_tokens": 1302,
+        "output_tokens": 378,
+        "reasoning_tokens": 287
+      }
+    },
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 7.123101,
+      "evidence": {
+        "precision": 0.3333333333333333,
+        "relevance_recall": 0.5,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.78,
+        "origin_service": "order",
+        "root_cause": "The order service is the most likely origin of the elevated latency. It is anomalous at 910.1 ms, while the gateway is its caller and shows a similar elevated latency of 917.15 ms, consistent with latency incurred while invoking order.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "repetition": 3,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 4,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1299,
+        "input_tokens": 1302,
+        "output_tokens": 515,
+        "reasoning_tokens": 401
+      }
+    },
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 6.73899,
+      "evidence": {
+        "precision": 0.3333333333333333,
+        "relevance_recall": 0.5,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.78,
+        "origin_service": "order",
+        "root_cause": "The order service is the most likely origin of the elevated latency, with its slow responses propagating to the gateway through the gateway -> order dependency. The payment service is observed without a corresponding anomaly, making it less likely to be the source.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "repetition": 4,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 5,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1299,
+        "input_tokens": 1302,
+        "output_tokens": 516,
+        "reasoning_tokens": 405
+      }
+    },
+    {
+      "case_id": "c-994c0c71b0",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 5.890989,
+      "evidence": {
+        "precision": 0.5,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": "order",
+        "primary_comparison": true,
+        "status": "identified"
+      },
+      "hypothesis": {
+        "confidence": 0.8,
+        "origin_service": "order",
+        "root_cause": "The order service is the most likely origin of the elevated latency: it is independently anomalous and is directly called by gateway, whose nearly matching elevated latency can include time spent waiting for order. Payment is also observed in the context but has no listed anomaly.",
+        "status": "identified",
+        "supporting_evidence": [
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": true,
+      "outcome": "correct_identification",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "e5c1f6d7c1ba608a1b8575aedf511e1220e844ac1848654054bf528fcced5e39",
+      "repetition": 5,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 6,
+      "scenario_id": "S4",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1299,
+        "input_tokens": 1302,
+        "output_tokens": 453,
+        "reasoning_tokens": 331
+      }
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 4.2e-05,
+      "evidence": {
+        "precision": 0.6,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.5,
+        "origin_service": null,
+        "root_cause": "No origin can be established from this evidence: unobserved dependency: order (health of payment is unknown).",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "deterministic",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 0,
+      "rendered_prompt_sha256": null,
+      "repetition": 1,
+      "request_parameters_sha256": null,
+      "response_model": null,
+      "run_index": 7,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": null
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 3.360421,
+      "evidence": {
+        "precision": 0.5,
+        "relevance_recall": 0.6666666666666666,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.93,
+        "origin_service": null,
+        "root_cause": "Elevated HTTP server duration is established for both gateway and order, with gateway calling order. Order also calls payment, whose HTTP server duration is unobserved, so payment health is unknown. The evidence does not distinguish whether the latency originates in gateway, order, or the unobserved payment dependency.",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "repetition": 1,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 8,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 0,
+        "input_tokens": 1352,
+        "output_tokens": 216,
+        "reasoning_tokens": 81
+      }
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 3.493079,
+      "evidence": {
+        "precision": 0.6,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.93,
+        "origin_service": null,
+        "root_cause": "Gateway and order experienced elevated HTTP server duration, with gateway invoking order and order invoking payment. Payment's duration telemetry is unobserved, so the evidence cannot distinguish whether the excess latency originates in order, payment, or both; no single origin is established.",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "repetition": 2,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 9,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1349,
+        "input_tokens": 1352,
+        "output_tokens": 256,
+        "reasoning_tokens": 122
+      }
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 3.139147,
+      "evidence": {
+        "precision": 0.6,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.94,
+        "origin_service": null,
+        "root_cause": "Gateway and order have elevated HTTP server duration, and gateway invokes order. Order also invokes payment, whose HTTP server duration is unobserved. The evidence does not distinguish whether the latency originates within gateway, order, or the unobserved payment dependency.",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "repetition": 3,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 10,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1349,
+        "input_tokens": 1352,
+        "output_tokens": 232,
+        "reasoning_tokens": 99
+      }
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 3.546431,
+      "evidence": {
+        "precision": 0.6,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.96,
+        "origin_service": null,
+        "root_cause": "Gateway and order both exhibit elevated HTTP server duration, and order invokes payment, whose corresponding duration telemetry is unobserved. The evidence does not distinguish whether the latency originates in gateway, order, payment, or their interactions; payment health is unknown.",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "repetition": 4,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 11,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1349,
+        "input_tokens": 1352,
+        "output_tokens": 236,
+        "reasoning_tokens": 104
+      }
+    },
+    {
+      "case_id": "c-617f03f15a",
+      "contract_error": null,
+      "cost_usd": null,
+      "elapsed_seconds": 3.666772,
+      "evidence": {
+        "precision": 0.6,
+        "relevance_recall": 1.0,
+        "validity": 1.0
+      },
+      "expected": {
+        "injected_cause": "order",
+        "origin": null,
+        "primary_comparison": true,
+        "status": "undetermined"
+      },
+      "hypothesis": {
+        "confidence": 0.93,
+        "origin_service": null,
+        "root_cause": "Gateway and order have elevated HTTP server duration, and gateway invokes order while order invokes payment. Payment's duration telemetry is unobserved, so it is unknown whether the latency originates in payment, order's own processing, or another contribution; the evidence does not distinguish a single origin.",
+        "status": "undetermined",
+        "supporting_evidence": [
+          {
+            "index": 0,
+            "kind": "anomaly"
+          },
+          {
+            "index": 1,
+            "kind": "anomaly"
+          },
+          {
+            "index": 0,
+            "kind": "relationship"
+          },
+          {
+            "index": 1,
+            "kind": "relationship"
+          },
+          {
+            "index": 0,
+            "kind": "unobserved_dependency"
+          }
+        ]
+      },
+      "investigator": "llm",
+      "matches_injected_cause": null,
+      "outcome": "appropriate_abstention",
+      "provider_failure": null,
+      "provider_requests": 1,
+      "rendered_prompt_sha256": "1cca6f3cd405c58559df54e44512a897f2e416677eea36dfe910f7429c1e79dd",
+      "repetition": 5,
+      "request_parameters_sha256": "cedf6f23e638a5b3951dd87caa6ca043d5475de7f87418fe2445e3c97a2a6db3",
+      "response_model": "gpt-5.6-luna",
+      "run_index": 12,
+      "scenario_id": "S5",
+      "scored": true,
+      "usage": {
+        "available": true,
+        "cached_input_tokens": 1349,
+        "input_tokens": 1352,
+        "output_tokens": 261,
+        "reasoning_tokens": 122
+      }
+    }
+  ],
+  "summary": {
+    "note": "Counts only. A handful of scenarios and repetitions supports no accuracy or calibration claim. Unscored, contract-failure and provider-failure runs are outside scored_runs.",
+    "per_investigator": {
+      "deterministic": {
+        "cost_usd": null,
+        "elapsed_seconds_total": 9e-05,
+        "outcomes": {
+          "appropriate_abstention": 1,
+          "contract_failure": 0,
+          "correct_identification": 1,
+          "false_attribution": 0,
+          "over_abstention": 0,
+          "provider_failure": 0,
+          "unscored": 0,
+          "unsupported_attribution": 0
+        },
+        "provider_failures": {},
+        "runs": 2,
+        "scored_runs": 2,
+        "tokens": {
+          "input_tokens": null,
+          "output_tokens": null,
+          "runs_with_usage": 0,
+          "runs_without_usage": 0
+        }
+      },
+      "llm": {
+        "cost_usd": null,
+        "elapsed_seconds_total": 49.415883,
+        "outcomes": {
+          "appropriate_abstention": 5,
+          "contract_failure": 0,
+          "correct_identification": 5,
+          "false_attribution": 0,
+          "over_abstention": 0,
+          "provider_failure": 0,
+          "unscored": 0,
+          "unsupported_attribution": 0
+        },
+        "provider_failures": {},
+        "runs": 10,
+        "scored_runs": 10,
+        "tokens": {
+          "input_tokens": 13270,
+          "output_tokens": 3561,
+          "runs_with_usage": 10,
+          "runs_without_usage": 0
+        }
+      }
+    },
+    "per_scenario": {
+      "S4": {
+        "deterministic": {
+          "cost_usd": null,
+          "elapsed_seconds_total": 4.8e-05,
+          "outcomes": {
+            "appropriate_abstention": 0,
+            "contract_failure": 0,
+            "correct_identification": 1,
+            "false_attribution": 0,
+            "over_abstention": 0,
+            "provider_failure": 0,
+            "unscored": 0,
+            "unsupported_attribution": 0
+          },
+          "provider_failures": {},
+          "runs": 1,
+          "scored_runs": 1,
+          "tokens": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "runs_with_usage": 0,
+            "runs_without_usage": 0
+          }
+        },
+        "llm": {
+          "cost_usd": null,
+          "elapsed_seconds_total": 32.210033,
+          "outcomes": {
+            "appropriate_abstention": 0,
+            "contract_failure": 0,
+            "correct_identification": 5,
+            "false_attribution": 0,
+            "over_abstention": 0,
+            "provider_failure": 0,
+            "unscored": 0,
+            "unsupported_attribution": 0
+          },
+          "provider_failures": {},
+          "runs": 5,
+          "scored_runs": 5,
+          "tokens": {
+            "input_tokens": 6510,
+            "output_tokens": 2360,
+            "runs_with_usage": 5,
+            "runs_without_usage": 0
+          }
+        }
+      },
+      "S5": {
+        "deterministic": {
+          "cost_usd": null,
+          "elapsed_seconds_total": 4.2e-05,
+          "outcomes": {
+            "appropriate_abstention": 1,
+            "contract_failure": 0,
+            "correct_identification": 0,
+            "false_attribution": 0,
+            "over_abstention": 0,
+            "provider_failure": 0,
+            "unscored": 0,
+            "unsupported_attribution": 0
+          },
+          "provider_failures": {},
+          "runs": 1,
+          "scored_runs": 1,
+          "tokens": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "runs_with_usage": 0,
+            "runs_without_usage": 0
+          }
+        },
+        "llm": {
+          "cost_usd": null,
+          "elapsed_seconds_total": 17.20585,
+          "outcomes": {
+            "appropriate_abstention": 5,
+            "contract_failure": 0,
+            "correct_identification": 0,
+            "false_attribution": 0,
+            "over_abstention": 0,
+            "provider_failure": 0,
+            "unscored": 0,
+            "unsupported_attribution": 0
+          },
+          "provider_failures": {},
+          "runs": 5,
+          "scored_runs": 5,
+          "tokens": {
+            "input_tokens": 6760,
+            "output_tokens": 1201,
+            "runs_with_usage": 5,
+            "runs_without_usage": 0
+          }
+        }
+      }
+    }
+  }
+}
